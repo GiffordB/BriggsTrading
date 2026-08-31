@@ -1,0 +1,40 @@
+name: Run congress trading bot
+
+# Congress disclosures are filed on an irregular schedule (up to 45 days after
+# the actual trade), so running once a day on weekday evenings is plenty --
+# there's no benefit to running more often than the source data updates.
+on:
+  schedule:
+    - cron: "0 22 * * 1-5" # 22:00 UTC, weekdays (after US market close)
+  workflow_dispatch: {}
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore state db from previous run (dedupe across runs)
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true # fine if this is the first-ever run
+        with:
+          workflow: run-bot.yml
+          name: seen-trades-db
+      - name: Run bot
+        env:
+          QUIVER_API_TOKEN: ${{ secrets.QUIVER_API_TOKEN }}
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
+          CONFIRM_LIVE_TRADING: ${{ vars.CONFIRM_LIVE_TRADING }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'true' }}
+        run: python -m src.main
+      - name: Upload state db so trades aren't re-mirrored next run
+        uses: actions/upload-artifact@v4
+        with:
+          name: seen-trades-db
+          path: seen_trades.db
