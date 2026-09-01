@@ -103,13 +103,20 @@ workflow commits back to the repo after each run (using GitHub's own
 built-in token, no extra secrets needed). The dashboard reads this file
 straight from GitHub to show a live audit trail alongside the account data.
 
-## Performance metrics
+## Performance metrics and charts
 
-The dashboard also shows Sharpe ratio, max drawdown, and CAGR, computed
-directly from Alpaca's own portfolio history endpoint (`get_portfolio_history`)
--- no separate tracking database needed. "Open position win rate" is a
-simplified proxy (% of currently open positions with positive unrealized
-P/L), not a rigorous realized-P/L trade ledger.
+The dashboard shows Sharpe ratio, max drawdown, and CAGR, computed directly
+from Alpaca's own portfolio history endpoint (`get_portfolio_history`) -- no
+separate tracking database needed. "Open position win rate" is a simplified
+proxy (% of currently open positions with positive unrealized P/L), not a
+rigorous realized-P/L trade ledger.
+
+The same portfolio history also drives an **account equity chart** (via
+Chart.js, loaded from a CDN) so you can see the trend over time, not just
+today's number. Each open position also gets a small **sparkline** showing
+its price over the last 90 days (via Alpaca's free historical bars),
+colored green or red to match whether that position is currently up or
+down.
 
 ## News alerts and manual sell
 

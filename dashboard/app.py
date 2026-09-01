@@ -41,6 +41,9 @@ _DECISIONS_TTL_SECONDS = 300
 _news_cache: dict = {"data": [], "fetched_at": 0.0}
 _NEWS_TTL_SECONDS = 300
 
+_price_history_cache: dict = {"data": {}, "fetched_at": 0.0}
+_PRICE_HISTORY_TTL_SECONDS = 900  # daily bars don't change intraday; cache generously
+
 
 @app.before_request
 def require_auth():
@@ -111,6 +114,21 @@ def _news_for_positions(positions: list[dict]) -> list[dict]:
     return _news_cache["data"]
 
 
+def _price_history_for_positions(positions: list[dict]) -> dict[str, list[dict]]:
+    """Daily price series per held ticker, for the sparkline next to each position --
+    shows the trend behind today's snapshot, not just the point-in-time number."""
+    tickers = sorted({p["symbol"] for p in positions})
+    now = time.time()
+    if (
+        tickers != _price_history_cache.get("tickers")
+        or now - _price_history_cache["fetched_at"] > _PRICE_HISTORY_TTL_SECONDS
+    ):
+        _price_history_cache["data"] = broker.get_price_history(tickers, lookback_days=90)
+        _price_history_cache["tickers"] = tickers
+        _price_history_cache["fetched_at"] = now
+    return _price_history_cache["data"]
+
+
 @app.route("/")
 def index():
     return render_template("index.html", paper=config.alpaca_paper, dry_run=config.dry_run)
@@ -150,6 +168,12 @@ def api_data():
         news_alerts = []
 
     try:
+        price_history = _price_history_for_positions(positions)
+    except Exception:
+        logger.exception("Could not fetch price history")
+        price_history = {}
+
+    try:
         risk_status = assess_risk(broker, config)
         risk = {
             "halted": risk_status.halted,
@@ -161,8 +185,8 @@ def api_data():
         risk = {"halted": None, "reasons": [f"Could not compute: {exc}"], "drawdown_pct": None, "exposure_pct": None}
 
     try:
-        history = broker.get_portfolio_history(period="3M", timeframe="1D")
-        m = compute_metrics(history, positions)
+        equity_curve = broker.get_portfolio_history(period="3M", timeframe="1D")
+        m = compute_metrics(equity_curve, positions)
         metrics = {
             "sharpe_ratio": m.sharpe_ratio,
             "max_drawdown_pct": m.max_drawdown_pct,
@@ -171,6 +195,7 @@ def api_data():
             "num_data_points": m.num_data_points,
         }
     except Exception as exc:
+        equity_curve = []
         metrics = {"error": str(exc)}
 
     return jsonify(
@@ -181,6 +206,8 @@ def api_data():
             "disclosures": disclosures,
             "decisions": decisions,
             "news_alerts": news_alerts,
+            "price_history": price_history,
+            "equity_curve": equity_curve,
             "risk": risk,
             "metrics": metrics,
             "mode": {"paper": config.alpaca_paper, "dry_run": config.dry_run},

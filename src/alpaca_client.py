@@ -1,7 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical.news import NewsClient
-from alpaca.data.requests import NewsRequest
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import NewsRequest, StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest, MarketOrderRequest
@@ -11,6 +14,7 @@ class AlpacaClient:
     def __init__(self, api_key: str, secret_key: str, paper: bool):
         self._client = TradingClient(api_key, secret_key, paper=paper)
         self._news_client = NewsClient(api_key, secret_key)
+        self._data_client = StockHistoricalDataClient(api_key, secret_key)
 
     def get_equity(self) -> float:
         account = self._client.get_account()
@@ -122,3 +126,23 @@ class AlpacaClient:
             }
             for a in sorted(articles, key=lambda a: a.created_at, reverse=True)
         ]
+
+    def get_price_history(self, symbols: list[str], lookback_days: int) -> dict[str, list[dict]]:
+        """Daily close price series per symbol, for position sparklines. Uses the
+        free IEX feed, which works without a paid SIP subscription."""
+        if not symbols:
+            return {}
+        request = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=TimeFrame.Day,
+            start=datetime.now(timezone.utc) - timedelta(days=lookback_days),
+            feed=DataFeed.IEX,
+        )
+        bar_set = self._data_client.get_stock_bars(request)
+        return {
+            symbol: [
+                {"date": bar.timestamp.date().isoformat(), "close": float(bar.close)}
+                for bar in bars
+            ]
+            for symbol, bars in bar_set.data.items()
+        }

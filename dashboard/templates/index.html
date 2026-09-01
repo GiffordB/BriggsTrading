@@ -17,6 +17,7 @@
     --good:           #006300;
     --critical:       #d03b3b;
     --warning:        #fab219;
+    --series-1:       #2a78d6;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -31,6 +32,7 @@
       --good:           #0ca30c;
       --critical:       #e66767;
       --warning:        #fab219;
+      --series-1:       #3987e5;
     }
   }
 
@@ -118,6 +120,13 @@
   }
   .sell-btn:hover { background: color-mix(in srgb, var(--critical) 15%, transparent); }
   .sell-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .chart-card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; height: 220px;
+  }
+  .sparkline-cell { width: 90px; }
+  .sparkline-cell canvas { width: 84px; height: 28px; }
 </style>
 </head>
 <body>
@@ -155,14 +164,20 @@
   </div>
 
   <section>
+    <h2>Account Equity (3mo)</h2>
+    <div class="chart-card"><canvas id="equity-chart"></canvas></div>
+  </section>
+
+  <section>
     <h2>Open Positions</h2>
     <div class="table-scroll">
       <table>
         <thead><tr>
           <th>Symbol</th><th class="num">Qty</th><th class="num">Avg Entry</th>
           <th class="num">Current</th><th class="num">Market Value</th><th class="num">Unrealized P/L</th>
+          <th>Trend (90d)</th>
         </tr></thead>
-        <tbody id="positions-body"><tr class="empty-row"><td colspan="6">Loading&hellip;</td></tr></tbody>
+        <tbody id="positions-body"><tr class="empty-row"><td colspan="7">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -207,6 +222,8 @@
   <div class="updated" id="updated">Loading data&hellip;</div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script>
 const fmtMoney = (n) => n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const fmtPct = (n) => n == null ? '—' : (n * 100).toFixed(2) + '%';
@@ -243,6 +260,87 @@ function renderNewsAlerts(alerts) {
         ${sellButtons}
       </div>`;
   }).join('');
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+let equityChart = null;
+function renderEquityChart(equityCurve) {
+  const canvas = document.getElementById('equity-chart');
+  if (!equityCurve || equityCurve.length < 2) {
+    if (equityChart) { equityChart.destroy(); equityChart = null; }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const labels = equityCurve.map(p => new Date(p.timestamp * 1000));
+  const values = equityCurve.map(p => p.equity);
+  const lineColor = cssVar('--series-1');
+  const muted = cssVar('--text-muted');
+  const grid = cssVar('--gridline');
+
+  if (equityChart) equityChart.destroy();
+  equityChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        borderColor: lineColor,
+        backgroundColor: lineColor + '22',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        fill: true,
+        tension: 0.15,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { type: 'time', time: { unit: 'week' }, grid: { display: false }, ticks: { color: muted, maxRotation: 0 } },
+        y: { grid: { color: grid }, ticks: { color: muted, callback: (v) => '$' + v.toLocaleString() } },
+      },
+      interaction: { mode: 'index', intersect: false },
+    },
+  });
+}
+
+const sparklineCharts = {};
+function renderSparklines(priceHistory, positions) {
+  for (const p of positions) {
+    const canvas = document.getElementById(`sparkline-${p.symbol}`);
+    if (!canvas) continue;
+    const series = (priceHistory && priceHistory[p.symbol]) || [];
+    if (sparklineCharts[p.symbol]) { sparklineCharts[p.symbol].destroy(); }
+    if (series.length < 2) continue;
+    const isUp = p.unrealized_pl >= 0;
+    const color = cssVar(isUp ? '--good' : '--critical');
+    sparklineCharts[p.symbol] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: series.map(pt => pt.date),
+        datasets: [{
+          data: series.map(pt => pt.close),
+          borderColor: color,
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.1,
+        }],
+      },
+      options: {
+        responsive: false,
+        animation: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } },
+      },
+    });
+  }
 }
 
 async function sellPosition(ticker, btn) {
@@ -315,7 +413,7 @@ async function refresh() {
   cagrEl.className = 'value ' + (m.cagr_pct > 0 ? 'good' : m.cagr_pct < 0 ? 'critical' : '');
   document.getElementById('stat-winrate').textContent = m.open_position_win_rate_pct != null ? m.open_position_win_rate_pct.toFixed(0) + '%' : 'n/a';
 
-  renderRows('positions-body', data.positions, 6, (p) => `
+  renderRows('positions-body', data.positions, 7, (p) => `
     <tr>
       <td>${escapeHtml(p.symbol)}</td>
       <td class="num">${p.qty}</td>
@@ -323,7 +421,10 @@ async function refresh() {
       <td class="num">${fmtMoney(p.current_price)}</td>
       <td class="num">${fmtMoney(p.market_value)}</td>
       <td class="num ${p.unrealized_pl > 0 ? 'good' : p.unrealized_pl < 0 ? 'critical' : ''}">${fmtMoney(p.unrealized_pl)} (${fmtPct(p.unrealized_plpc)})</td>
+      <td class="sparkline-cell"><canvas id="sparkline-${escapeHtml(p.symbol)}" width="84" height="28"></canvas></td>
     </tr>`);
+  renderSparklines(data.price_history, data.positions);
+  renderEquityChart(data.equity_curve);
 
   renderRows('orders-body', data.orders, 7, (o) => `
     <tr>
