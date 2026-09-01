@@ -165,7 +165,8 @@ value running this more than once a day. Two options:
   secrets, and `ALPACA_PAPER` / `DRY_RUN` / `CONFIRM_LIVE_TRADING` /
   `TRADING_HALTED` / `MAX_DRAWDOWN_PCT` / `MAX_POSITION_CONCENTRATION_PCT` /
   `MAX_PORTFOLIO_EXPOSURE_PCT` / `REQUIRE_CONFIRMING_SIGNAL` /
-  `CONFIRMING_SIGNAL_LOOKBACK_DAYS` as repo variables, to use it. The workflow also
+  `CONFIRMING_SIGNAL_LOOKBACK_DAYS` / `MIRROR_TRANSACTION_TYPES` as repo
+  variables, to use it. The workflow also
   needs `contents: write` permission (already set in the file) so it can
   commit the audit log back to the repo after each run.
 

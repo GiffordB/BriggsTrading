@@ -41,6 +41,7 @@ jobs:
           MAX_PORTFOLIO_EXPOSURE_PCT: ${{ vars.MAX_PORTFOLIO_EXPOSURE_PCT || '0.75' }}
           REQUIRE_CONFIRMING_SIGNAL: ${{ vars.REQUIRE_CONFIRMING_SIGNAL || 'false' }}
           CONFIRMING_SIGNAL_LOOKBACK_DAYS: ${{ vars.CONFIRMING_SIGNAL_LOOKBACK_DAYS || '90' }}
+          MIRROR_TRANSACTION_TYPES: ${{ vars.MIRROR_TRANSACTION_TYPES || 'Purchase' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4
