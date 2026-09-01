@@ -1,3 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
+from alpaca.data.historical.news import NewsClient
+from alpaca.data.requests import NewsRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
 from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest, MarketOrderRequest
@@ -6,6 +10,7 @@ from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest
 class AlpacaClient:
     def __init__(self, api_key: str, secret_key: str, paper: bool):
         self._client = TradingClient(api_key, secret_key, paper=paper)
+        self._news_client = NewsClient(api_key, secret_key)
 
     def get_equity(self) -> float:
         account = self._client.get_account()
@@ -94,3 +99,26 @@ class AlpacaClient:
 
     def close_position(self, ticker: str):
         return self._client.close_position(ticker)
+
+    def get_recent_news(self, symbols: list[str], lookback_days: int, limit: int = 50) -> list[dict]:
+        """Recent news headlines for the given tickers, via Alpaca's News API --
+        no extra signup needed, works with the same account keys."""
+        if not symbols:
+            return []
+        request = NewsRequest(
+            symbols=symbols,
+            start=datetime.now(timezone.utc) - timedelta(days=lookback_days),
+            limit=limit,
+        )
+        news_set = self._news_client.get_news(request)
+        articles = news_set.data.get("news", [])
+        return [
+            {
+                "headline": a.headline,
+                "source": a.source,
+                "url": a.url,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "symbols": a.symbols,
+            }
+            for a in sorted(articles, key=lambda a: a.created_at, reverse=True)
+        ]

@@ -30,3 +30,9 @@ services:
         value: "0.20"
       - key: MAX_PORTFOLIO_EXPOSURE_PCT
         value: "0.75"
+      - key: NEWS_LOOKBACK_DAYS
+        value: "5"
+      - key: DASHBOARD_USERNAME
+        sync: false
+      - key: DASHBOARD_PASSWORD
+        sync: false

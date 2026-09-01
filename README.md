@@ -111,6 +111,22 @@ directly from Alpaca's own portfolio history endpoint (`get_portfolio_history`)
 simplified proxy (% of currently open positions with positive unrealized
 P/L), not a rigorous realized-P/L trade ledger.
 
+## News alerts and manual sell
+
+The dashboard fetches recent news (via Alpaca's free News API, same account
+keys) for whatever tickers you currently hold, and shows it as a prominent
+banner at the top of the page -- so you don't have to wait 30-45 days for a
+member's sale disclosure to find out a stock you're mirroring already had bad
+news. Each headline has a **Sell** button that closes that position
+immediately at market. This is a manual trigger only -- news never
+auto-sells anything on its own; you read the headline and decide.
+
+**This is a real trading action reachable from a web page, so the whole
+dashboard requires a login before it works.** Set `DASHBOARD_USERNAME` and
+`DASHBOARD_PASSWORD` (as Render secret env vars, or in `.env` locally) --
+without both set, the dashboard logs a loud warning and runs with no login
+at all, which is only acceptable for local testing on your own machine.
+
 ## Backtesting
 
 Before trusting a filter change, sanity-check it against history:

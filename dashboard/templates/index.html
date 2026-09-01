@@ -91,6 +91,33 @@
   .decision-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
   .decision-badge.buy, .decision-badge.sell { color: var(--good); }
   .decision-badge.skip { color: var(--text-muted); }
+
+  .news-alerts { margin-bottom: 20px; }
+  .news-alerts-header {
+    display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700;
+    color: var(--warning); margin-bottom: 10px;
+  }
+  .news-alerts-header .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+  .news-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: color-mix(in srgb, var(--warning) 12%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+    border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
+  }
+  .news-card .ticker-badge {
+    font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    background: var(--warning); color: #1a1a19; flex-shrink: 0;
+  }
+  .news-card .headline { font-size: 13px; flex: 1; min-width: 0; }
+  .news-card .headline a { color: var(--text-primary); }
+  .news-card .meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .sell-btn {
+    font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+    border: 1px solid var(--critical); color: var(--critical); background: transparent;
+    cursor: pointer; flex-shrink: 0;
+  }
+  .sell-btn:hover { background: color-mix(in srgb, var(--critical) 15%, transparent); }
+  .sell-btn:disabled { opacity: 0.5; cursor: default; }
 </style>
 </head>
 <body>
@@ -102,6 +129,11 @@
       {% if dry_run %}<span class="badge dry-run">DRY RUN</span>{% endif %}
     </div>
   </header>
+
+  <div class="news-alerts" id="news-alerts" hidden>
+    <div class="news-alerts-header"><span class="dot"></span><span>News on your holdings</span></div>
+    <div id="news-alerts-list"></div>
+  </div>
 
   <div class="risk-banner ok" id="risk-banner">
     <span class="dot"></span>
@@ -190,6 +222,55 @@ function renderRows(tbodyId, rows, colCount, rowFn) {
   tbody.innerHTML = rows.map(rowFn).join('');
 }
 
+function renderNewsAlerts(alerts) {
+  const container = document.getElementById('news-alerts');
+  const list = document.getElementById('news-alerts-list');
+  if (!alerts || alerts.length === 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  list.innerHTML = alerts.map(a => {
+    const tickers = (a.symbols || []).join(', ');
+    const sellButtons = (a.symbols || [])
+      .map(t => `<button class="sell-btn" onclick="sellPosition('${escapeHtml(t)}', this)">Sell ${escapeHtml(t)}</button>`)
+      .join(' ');
+    return `
+      <div class="news-card">
+        <span class="ticker-badge">${escapeHtml(tickers)}</span>
+        <span class="headline"><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.headline)}</a></span>
+        <span class="meta">${escapeHtml(a.source)} &middot; ${fmtDate(a.created_at)}</span>
+        ${sellButtons}
+      </div>`;
+  }).join('');
+}
+
+async function sellPosition(ticker, btn) {
+  if (!confirm(`Sell your entire ${ticker} position right now? This submits a real market order and cannot be undone.`)) return;
+  btn.disabled = true;
+  btn.textContent = 'Selling…';
+  try {
+    const res = await fetch('/api/sell', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ticker}),
+    });
+    const result = await res.json();
+    if (result.success) {
+      alert(`Sell order submitted for ${ticker}.`);
+      refresh();
+    } else {
+      alert(`Could not sell ${ticker}: ${result.error}`);
+      btn.disabled = false;
+      btn.textContent = `Sell ${ticker}`;
+    }
+  } catch (e) {
+    alert(`Could not sell ${ticker}: ${e}`);
+    btn.disabled = false;
+    btn.textContent = `Sell ${ticker}`;
+  }
+}
+
 async function refresh() {
   let data;
   try {
@@ -211,6 +292,8 @@ async function refresh() {
   dayPlEl.textContent = fmtMoney(a.day_pl) + ' (' + fmtPct(a.day_pl_pct) + ')';
   dayPlEl.className = 'value ' + (a.day_pl > 0 ? 'good' : a.day_pl < 0 ? 'critical' : '');
   document.getElementById('stat-positions').textContent = data.positions.length;
+
+  renderNewsAlerts(data.news_alerts);
 
   const banner = document.getElementById('risk-banner');
   const bannerText = document.getElementById('risk-banner-text');

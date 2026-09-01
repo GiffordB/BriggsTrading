@@ -48,6 +48,13 @@ class Config:
     require_confirming_signal: bool = _bool("REQUIRE_CONFIRMING_SIGNAL", False)
     confirming_signal_lookback_days: int = int(os.getenv("CONFIRMING_SIGNAL_LOOKBACK_DAYS", "90"))
 
+    news_lookback_days: int = int(os.getenv("NEWS_LOOKBACK_DAYS", "5"))
+
+    # Dashboard-only: gates every route with HTTP Basic Auth. Required once the
+    # dashboard can place trades (the manual sell button) -- see dashboard/app.py.
+    dashboard_username: str = os.getenv("DASHBOARD_USERNAME", "")
+    dashboard_password: str = os.getenv("DASHBOARD_PASSWORD", "")
+
     def validate(self) -> None:
         if not self.quiver_api_token:
             raise ValueError("QUIVER_API_TOKEN is not set")

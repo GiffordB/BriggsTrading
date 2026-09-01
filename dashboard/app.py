@@ -1,7 +1,10 @@
+import hmac
+import json
+import logging
 import time
 
 import requests
-from flask import Flask, jsonify, render_template
+from flask import Flask, Response, jsonify, render_template, request
 
 from src.alpaca_client import AlpacaClient
 from src.config import Config
@@ -9,11 +12,21 @@ from src.metrics import compute_metrics
 from src.quiver_client import QuiverClient
 from src.risk_guard import assess_risk
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
 config = Config()
 broker = AlpacaClient(config.alpaca_api_key, config.alpaca_secret_key, config.alpaca_paper)
 quiver = QuiverClient(config.quiver_api_token)
+
+if not config.dashboard_username or not config.dashboard_password:
+    logger.warning(
+        "DASHBOARD_USERNAME / DASHBOARD_PASSWORD are not set -- this dashboard, "
+        "including the manual sell button, is running with NO LOGIN. Set both "
+        "before deploying anywhere reachable by anyone but you."
+    )
 
 DECISIONS_LOG_URL = (
     "https://raw.githubusercontent.com/GiffordB/BriggsTrading/main/data/decisions_log.jsonl"
@@ -24,6 +37,27 @@ _DISCLOSURES_TTL_SECONDS = 300
 
 _decisions_cache: dict = {"data": [], "fetched_at": 0.0}
 _DECISIONS_TTL_SECONDS = 300
+
+_news_cache: dict = {"data": [], "fetched_at": 0.0}
+_NEWS_TTL_SECONDS = 300
+
+
+@app.before_request
+def require_auth():
+    if not config.dashboard_username or not config.dashboard_password:
+        return  # not configured -- see startup warning above
+    auth = request.authorization
+    valid = (
+        auth is not None
+        and hmac.compare_digest(auth.username, config.dashboard_username)
+        and hmac.compare_digest(auth.password, config.dashboard_password)
+    )
+    if not valid:
+        return Response(
+            "Authentication required",
+            401,
+            {"WWW-Authenticate": 'Basic realm="BriggsTrading Dashboard"'},
+        )
 
 
 def _recent_disclosures() -> list[dict]:
@@ -55,8 +89,6 @@ def _recent_decisions(limit: int = 30) -> list[dict]:
             resp = requests.get(DECISIONS_LOG_URL, timeout=10)
             if resp.status_code == 200:
                 lines = [line for line in resp.text.splitlines() if line.strip()]
-                import json
-
                 entries = [json.loads(line) for line in lines[-limit:]]
                 _decisions_cache["data"] = list(reversed(entries))
             else:
@@ -65,6 +97,18 @@ def _recent_decisions(limit: int = 30) -> list[dict]:
             _decisions_cache["data"] = []
         _decisions_cache["fetched_at"] = now
     return _decisions_cache["data"]
+
+
+def _news_for_positions(positions: list[dict]) -> list[dict]:
+    """Recent news for currently-held tickers only -- this is a visibility layer,
+    not an auto-sell trigger, so it never touches order placement on its own."""
+    tickers = sorted({p["symbol"] for p in positions})
+    now = time.time()
+    if tickers != _news_cache.get("tickers") or now - _news_cache["fetched_at"] > _NEWS_TTL_SECONDS:
+        _news_cache["data"] = broker.get_recent_news(tickers, config.news_lookback_days)
+        _news_cache["tickers"] = tickers
+        _news_cache["fetched_at"] = now
+    return _news_cache["data"]
 
 
 @app.route("/")
@@ -100,6 +144,12 @@ def api_data():
         decisions = []
 
     try:
+        news_alerts = _news_for_positions(positions)
+    except Exception:
+        logger.exception("Could not fetch news")
+        news_alerts = []
+
+    try:
         risk_status = assess_risk(broker, config)
         risk = {
             "halted": risk_status.halted,
@@ -130,11 +180,37 @@ def api_data():
             "orders": orders,
             "disclosures": disclosures,
             "decisions": decisions,
+            "news_alerts": news_alerts,
             "risk": risk,
             "metrics": metrics,
             "mode": {"paper": config.alpaca_paper, "dry_run": config.dry_run},
         }
     )
+
+
+@app.route("/api/sell", methods=["POST"])
+def api_sell():
+    data = request.get_json(force=True, silent=True) or {}
+    ticker = (data.get("ticker") or "").strip().upper()
+    if not ticker:
+        return jsonify({"success": False, "error": "ticker is required"}), 400
+
+    try:
+        held_tickers = {p["symbol"] for p in broker.list_positions()}
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Could not verify positions: {exc}"}), 502
+
+    if ticker not in held_tickers:
+        return jsonify({"success": False, "error": f"No open position in {ticker}"}), 400
+
+    try:
+        broker.close_position(ticker)
+    except Exception as exc:
+        logger.exception("Manual sell failed for %s", ticker)
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+    logger.warning("Manual sell triggered from dashboard for %s", ticker)
+    return jsonify({"success": True, "ticker": ticker})
 
 
 if __name__ == "__main__":
