@@ -82,6 +82,24 @@ value running this more than once a day. Two options:
   secrets, and `ALPACA_PAPER` / `DRY_RUN` / `CONFIRM_LIVE_TRADING` as repo
   variables, to use it.
 
+## Dashboard
+
+`dashboard/` is a small Flask app that shows account equity, open positions,
+recent orders this bot has placed, and the raw disclosure feed -- polling
+every 30 seconds. It reads live from Alpaca and Quiver; it doesn't need the
+bot's cron job to be running to show current state.
+
+Run it locally:
+```
+python -m flask --app dashboard.app run
+```
+then open http://127.0.0.1:5000.
+
+Deploy it on Render using the included `render.yaml`: create a new Blueprint
+from this repo in the Render dashboard, and set `QUIVER_API_TOKEN`,
+`ALPACA_API_KEY`, `ALPACA_SECRET_KEY` as secret env vars there (they're marked
+`sync: false` so Render prompts for them rather than storing them in the repo).
+
 ## Known limitations
 
 - The Quiver API response shape has changed before; if `src/quiver_client.py`

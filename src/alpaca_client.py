@@ -1,6 +1,6 @@
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
 
 
 class AlpacaClient:
@@ -14,6 +14,51 @@ class AlpacaClient:
     def get_buying_power(self) -> float:
         account = self._client.get_account()
         return float(account.buying_power)
+
+    def get_account_summary(self) -> dict:
+        account = self._client.get_account()
+        equity = float(account.equity)
+        last_equity = float(account.last_equity)
+        return {
+            "equity": equity,
+            "buying_power": float(account.buying_power),
+            "cash": float(account.cash),
+            "portfolio_value": float(account.portfolio_value),
+            "day_pl": equity - last_equity,
+            "day_pl_pct": (equity - last_equity) / last_equity if last_equity else 0.0,
+        }
+
+    def list_positions(self) -> list[dict]:
+        positions = self._client.get_all_positions()
+        return [
+            {
+                "symbol": p.symbol,
+                "qty": float(p.qty),
+                "avg_entry_price": float(p.avg_entry_price),
+                "current_price": float(p.current_price),
+                "market_value": float(p.market_value),
+                "unrealized_pl": float(p.unrealized_pl),
+                "unrealized_plpc": float(p.unrealized_plpc),
+            }
+            for p in positions
+        ]
+
+    def list_recent_orders(self, limit: int = 25) -> list[dict]:
+        request = GetOrdersRequest(status=QueryOrderStatus.ALL, limit=limit)
+        orders = self._client.get_orders(request)
+        return [
+            {
+                "symbol": o.symbol,
+                "side": o.side.value,
+                "notional": float(o.notional) if o.notional else None,
+                "qty": float(o.qty) if o.qty else None,
+                "status": o.status.value,
+                "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+                "submitted_at": o.submitted_at.isoformat() if o.submitted_at else None,
+                "filled_at": o.filled_at.isoformat() if o.filled_at else None,
+            }
+            for o in orders
+        ]
 
     def has_open_position(self, ticker: str) -> bool:
         try:

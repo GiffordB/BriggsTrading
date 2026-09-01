@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BriggsTrading Dashboard</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page-plane:     #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --border:         rgba(11,11,11,0.10);
+    --good:           #006300;
+    --critical:       #d03b3b;
+    --warning:        #fab219;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page-plane:     #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --border:         rgba(255,255,255,0.10);
+      --good:           #0ca30c;
+      --critical:       #e66767;
+      --warning:        #fab219;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page-plane);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; }
+  .mode-badges { display: flex; gap: 8px; }
+  .badge {
+    font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 5px;
+    border: 1px solid var(--border); color: var(--text-secondary);
+  }
+  .badge.paper { color: var(--warning); border-color: var(--warning); }
+  .badge.dry-run { color: var(--text-muted); }
+
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat-tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .stat-tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+  .stat-tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat-tile .value.good { color: var(--good); }
+  .stat-tile .value.critical { color: var(--critical); }
+
+  section { margin-bottom: 28px; }
+  section h2 { font-size: 15px; color: var(--text-secondary); margin: 0 0 10px; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--gridline); }
+  th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.good { color: var(--good); }
+  td.critical { color: var(--critical); }
+  .empty-row td { color: var(--text-muted); text-align: center; padding: 16px; }
+
+  .updated { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .table-scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>BriggsTrading</h1>
+    <div class="mode-badges">
+      <span class="badge {{ 'paper' if paper else '' }}">{{ 'PAPER' if paper else 'LIVE' }}</span>
+      {% if dry_run %}<span class="badge dry-run">DRY RUN</span>{% endif %}
+    </div>
+  </header>
+
+  <div class="stat-row" id="stat-row">
+    <div class="stat-tile"><div class="label">Equity</div><div class="value" id="stat-equity">&mdash;</div></div>
+    <div class="stat-tile"><div class="label">Buying Power</div><div class="value" id="stat-buying-power">&mdash;</div></div>
+    <div class="stat-tile"><div class="label">Day P/L</div><div class="value" id="stat-day-pl">&mdash;</div></div>
+    <div class="stat-tile"><div class="label">Open Positions</div><div class="value" id="stat-positions">&mdash;</div></div>
+  </div>
+
+  <section>
+    <h2>Open Positions</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th class="num">Qty</th><th class="num">Avg Entry</th>
+          <th class="num">Current</th><th class="num">Market Value</th><th class="num">Unrealized P/L</th>
+        </tr></thead>
+        <tbody id="positions-body"><tr class="empty-row"><td colspan="6">Loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recent Orders (this bot)</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Symbol</th><th>Side</th><th class="num">Notional</th><th class="num">Qty</th>
+          <th>Status</th><th class="num">Filled Price</th><th>Submitted</th>
+        </tr></thead>
+        <tbody id="orders-body"><tr class="empty-row"><td colspan="7">Loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recent Congressional Disclosures</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Member</th><th>Ticker</th><th>Type</th><th>Amount</th><th>Filed</th>
+        </tr></thead>
+        <tbody id="disclosures-body"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="updated" id="updated">Loading data&hellip;</div>
+</div>
+
+<script>
+const fmtMoney = (n) => n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const fmtPct = (n) => n == null ? '—' : (n * 100).toFixed(2) + '%';
+const fmtDate = (s) => s ? new Date(s).toLocaleString() : '—';
+const escapeHtml = (s) => (s ?? '').toString().replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function renderRows(tbodyId, rows, colCount, rowFn) {
+  const tbody = document.getElementById(tbodyId);
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Nothing to show</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(rowFn).join('');
+}
+
+async function refresh() {
+  let data;
+  try {
+    const res = await fetch('/api/data');
+    data = await res.json();
+  } catch (e) {
+    document.getElementById('updated').textContent = 'Failed to load data: ' + e;
+    return;
+  }
+  if (data.error) {
+    document.getElementById('updated').textContent = 'Error: ' + data.error;
+    return;
+  }
+
+  const a = data.account;
+  document.getElementById('stat-equity').textContent = fmtMoney(a.equity);
+  document.getElementById('stat-buying-power').textContent = fmtMoney(a.buying_power);
+  const dayPlEl = document.getElementById('stat-day-pl');
+  dayPlEl.textContent = fmtMoney(a.day_pl) + ' (' + fmtPct(a.day_pl_pct) + ')';
+  dayPlEl.className = 'value ' + (a.day_pl > 0 ? 'good' : a.day_pl < 0 ? 'critical' : '');
+  document.getElementById('stat-positions').textContent = data.positions.length;
+
+  renderRows('positions-body', data.positions, 6, (p) => `
+    <tr>
+      <td>${escapeHtml(p.symbol)}</td>
+      <td class="num">${p.qty}</td>
+      <td class="num">${fmtMoney(p.avg_entry_price)}</td>
+      <td class="num">${fmtMoney(p.current_price)}</td>
+      <td class="num">${fmtMoney(p.market_value)}</td>
+      <td class="num ${p.unrealized_pl > 0 ? 'good' : p.unrealized_pl < 0 ? 'critical' : ''}">${fmtMoney(p.unrealized_pl)} (${fmtPct(p.unrealized_plpc)})</td>
+    </tr>`);
+
+  renderRows('orders-body', data.orders, 7, (o) => `
+    <tr>
+      <td>${escapeHtml(o.symbol)}</td>
+      <td>${escapeHtml(o.side)}</td>
+      <td class="num">${o.notional != null ? fmtMoney(o.notional) : '—'}</td>
+      <td class="num">${o.qty ?? '—'}</td>
+      <td>${escapeHtml(o.status)}</td>
+      <td class="num">${o.filled_avg_price != null ? fmtMoney(o.filled_avg_price) : '—'}</td>
+      <td>${fmtDate(o.submitted_at)}</td>
+    </tr>`);
+
+  renderRows('disclosures-body', data.disclosures, 5, (d) => `
+    <tr>
+      <td>${escapeHtml(d.representative)}</td>
+      <td>${escapeHtml(d.ticker)}</td>
+      <td>${escapeHtml(d.transaction_type)}</td>
+      <td>${escapeHtml(d.raw_range)}</td>
+      <td>${fmtDate(d.filed_date)}</td>
+    </tr>`);
+
+  document.getElementById('updated').textContent = 'Last updated ' + new Date().toLocaleTimeString();
+}
+
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>

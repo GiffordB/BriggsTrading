@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: briggstrading-dashboard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn dashboard.app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: QUIVER_API_TOKEN
+        sync: false
+      - key: ALPACA_API_KEY
+        sync: false
+      - key: ALPACA_SECRET_KEY
+        sync: false
+      - key: ALPACA_PAPER
+        value: "true"
+      - key: DRY_RUN
+        value: "true"
+      - key: CONFIRM_LIVE_TRADING
+        sync: false
+      - key: LOOKBACK_DAYS
+        value: "7"
