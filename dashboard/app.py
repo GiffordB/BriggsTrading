@@ -9,6 +9,7 @@ from flask import Flask, Response, jsonify, render_template, request
 from src.alpaca_client import AlpacaClient
 from src.config import Config
 from src.metrics import compute_metrics
+from src.news_sentiment import is_bad_news
 from src.quiver_client import QuiverClient
 from src.risk_guard import assess_risk
 
@@ -167,6 +168,8 @@ def api_data():
         logger.exception("Could not fetch news")
         news_alerts = []
 
+    bad_news_alerts = [a for a in news_alerts if is_bad_news(a.get("headline", ""))]
+
     try:
         price_history = _price_history_for_positions(positions)
     except Exception:
@@ -206,6 +209,7 @@ def api_data():
             "disclosures": disclosures,
             "decisions": decisions,
             "news_alerts": news_alerts,
+            "bad_news_alerts": bad_news_alerts,
             "price_history": price_history,
             "equity_curve": equity_curve,
             "risk": risk,

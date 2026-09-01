@@ -96,21 +96,32 @@
 
   .news-alerts { margin-bottom: 20px; }
   .news-alerts-header {
-    display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700;
-    color: var(--warning); margin-bottom: 10px;
+    display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800;
+    color: var(--critical); margin-bottom: 10px; letter-spacing: 0.02em;
   }
-  .news-alerts-header .dot { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+  .news-alerts-header .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
+
+  @keyframes alert-flash {
+    0%, 100% { background: color-mix(in srgb, var(--critical) 22%, var(--surface-1));
+               border-color: color-mix(in srgb, var(--critical) 70%, var(--border)); }
+    50%      { background: color-mix(in srgb, var(--critical) 6%, var(--surface-1));
+               border-color: color-mix(in srgb, var(--critical) 25%, var(--border)); }
+  }
   .news-card {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    background: color-mix(in srgb, var(--warning) 12%, var(--surface-1));
-    border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+    background: color-mix(in srgb, var(--critical) 15%, var(--surface-1));
+    border: 1px solid color-mix(in srgb, var(--critical) 50%, var(--border));
     border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
+    animation: alert-flash 1.4s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .news-card { animation: none; }
   }
   .news-card .ticker-badge {
     font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
-    background: var(--warning); color: #1a1a19; flex-shrink: 0;
+    background: var(--critical); color: #ffffff; flex-shrink: 0;
   }
-  .news-card .headline { font-size: 13px; flex: 1; min-width: 0; }
+  .news-card .headline { font-size: 13px; flex: 1; min-width: 0; font-weight: 600; }
   .news-card .headline a { color: var(--text-primary); }
   .news-card .meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
   .sell-btn {
@@ -140,7 +151,7 @@
   </header>
 
   <div class="news-alerts" id="news-alerts" hidden>
-    <div class="news-alerts-header"><span class="dot"></span><span>News on your holdings</span></div>
+    <div class="news-alerts-header"><span class="dot"></span><span>ALERT!! Bad news on your holdings</span></div>
     <div id="news-alerts-list"></div>
   </div>
 
@@ -403,7 +414,7 @@ async function refresh() {
   dayPlEl.className = 'value ' + (a.day_pl > 0 ? 'good' : a.day_pl < 0 ? 'critical' : '');
   document.getElementById('stat-positions').textContent = data.positions.length;
 
-  renderNewsAlerts(data.news_alerts);
+  renderNewsAlerts(data.bad_news_alerts);
 
   const banner = document.getElementById('risk-banner');
   const bannerText = document.getElementById('risk-banner-text');
