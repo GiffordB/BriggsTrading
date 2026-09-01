@@ -48,6 +48,12 @@ class Config:
     require_confirming_signal: bool = _bool("REQUIRE_CONFIRMING_SIGNAL", False)
     confirming_signal_lookback_days: int = int(os.getenv("CONFIRMING_SIGNAL_LOOKBACK_DAYS", "90"))
 
+    # Free alternative to Quiver's paid Insider Trading tier -- see
+    # src/sec_edgar_client.py. Only used when REQUIRE_CONFIRMING_SIGNAL is on.
+    sec_edgar_user_agent: str = os.getenv(
+        "SEC_EDGAR_USER_AGENT", "BriggsTrading github.com/GiffordB/BriggsTrading"
+    )
+
     news_lookback_days: int = int(os.getenv("NEWS_LOOKBACK_DAYS", "5"))
 
     # Dashboard-only: gates every route with HTTP Basic Auth. Required once the

@@ -6,6 +6,7 @@ from alpaca.trading.enums import OrderSide
 from .alpaca_client import AlpacaClient
 from .config import Config
 from .quiver_client import Disclosure
+from .sec_edgar_client import SECEdgarClient
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ def evaluate_disclosures(
     config: Config,
     broker: AlpacaClient,
     confirming_tickers: set[str] | None = None,
+    sec_edgar: SECEdgarClient | None = None,
 ) -> list[Decision]:
     """Evaluates every disclosure and returns a Decision for each one -- including
     skips, with a human-readable reason -- so the full set can be logged for audit,
@@ -60,6 +62,13 @@ def evaluate_disclosures(
     per run by main.py). Passing None means either the feature is off or that
     data was unavailable this run -- either way, the filter is not applied,
     rather than blocking every purchase.
+
+    `sec_edgar`, when provided, adds a second, independent way for a ticker to
+    qualify: a free SEC EDGAR lookup for a recent insider open-market purchase
+    (Form 4, transaction code 'P'). Checked per-ticker, only for disclosures
+    that already passed the base filters and weren't already confirmed by
+    `confirming_tickers` -- so it adds at most a handful of live lookups per
+    run, not one per disclosure fetched.
 
     Only makes read-only broker calls (tradability, existing positions, equity), so
     this is always safe to call, including in DRY_RUN mode.
@@ -91,20 +100,26 @@ def evaluate_disclosures(
             decisions.append(Decision(disclosure, "sell", "mirroring disclosed sale"))
             continue
 
-        if (
-            config.require_confirming_signal
-            and confirming_tickers is not None
-            and disclosure.ticker not in confirming_tickers
-        ):
-            decisions.append(
-                Decision(
-                    disclosure,
-                    "skip",
-                    f"no recent lobbying/gov-contract activity for {disclosure.ticker} "
-                    f"in the last {config.confirming_signal_lookback_days} days",
+        confirmation_source = None
+        if config.require_confirming_signal and confirming_tickers is not None:
+            if disclosure.ticker in confirming_tickers:
+                confirmation_source = "recent lobbying/gov-contract activity"
+            elif sec_edgar is not None and sec_edgar.has_recent_insider_purchase(
+                disclosure.ticker, config.confirming_signal_lookback_days
+            ):
+                confirmation_source = "a recent insider open-market purchase (SEC Form 4)"
+
+            if confirmation_source is None:
+                decisions.append(
+                    Decision(
+                        disclosure,
+                        "skip",
+                        f"no confirming signal (lobbying, gov contract, or insider purchase) "
+                        f"for {disclosure.ticker} in the last "
+                        f"{config.confirming_signal_lookback_days} days",
+                    )
                 )
-            )
-            continue
+                continue
 
         notional = min(per_trade_notional, remaining_run_budget)
         if notional < 1:
@@ -114,8 +129,8 @@ def evaluate_disclosures(
             continue
 
         reason = "mirroring disclosed purchase"
-        if config.require_confirming_signal and confirming_tickers is not None:
-            reason += " (confirmed by recent lobbying/gov-contract activity)"
+        if confirmation_source:
+            reason += f" (confirmed by {confirmation_source})"
         decisions.append(Decision(disclosure, "buy", reason, notional=notional))
         remaining_run_budget -= notional
 

@@ -6,6 +6,7 @@ from .alpaca_client import AlpacaClient
 from .config import Config
 from .quiver_client import QuiverClient
 from .risk_guard import assess_risk, breaches_concentration_limit
+from .sec_edgar_client import SECEdgarClient
 from .state import SeenTradesStore
 from .strategy import evaluate_disclosures
 
@@ -35,6 +36,7 @@ def run() -> None:
 
     quiver = QuiverClient(config.quiver_api_token)
     broker = AlpacaClient(config.alpaca_api_key, config.alpaca_secret_key, config.alpaca_paper)
+    sec_edgar = SECEdgarClient(config.sec_edgar_user_agent)
     store = SeenTradesStore()
 
     try:
@@ -69,7 +71,9 @@ def run() -> None:
                     len(confirming_tickers),
                 )
 
-        decisions = evaluate_disclosures(new_disclosures, config, broker, confirming_tickers)
+        decisions = evaluate_disclosures(
+            new_disclosures, config, broker, confirming_tickers, sec_edgar
+        )
 
         for decision in decisions:
             d = decision.disclosure

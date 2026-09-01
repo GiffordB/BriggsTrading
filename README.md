@@ -86,14 +86,27 @@ once the halt clears.
 
 ## Confirming signal (optional, off by default)
 
-Your Quiver Hobbyist plan already includes Corporate Lobbying and Government
-Contracts data alongside Congress Trading. Setting `REQUIRE_CONFIRMING_SIGNAL=true`
-adds an extra filter: a disclosed purchase only gets mirrored if that same
-company also shows recent lobbying spend or a government contract award
-(within `CONFIRMING_SIGNAL_LOOKBACK_DAYS`, default 90). It's purely a
-narrowing filter -- it can only make the bot mirror *fewer* trades, never
-more, and if Quiver's lobbying/contracts data is temporarily unavailable the
-filter is skipped for that run rather than blocking every purchase.
+Setting `REQUIRE_CONFIRMING_SIGNAL=true` adds an extra filter: a disclosed
+purchase only gets mirrored if there's independent corroborating activity
+for that same company, from any of three sources (within
+`CONFIRMING_SIGNAL_LOOKBACK_DAYS`, default 90):
+
+1. **Corporate lobbying spend** or **government contract award** -- via
+   Quiver, already included in your Hobbyist plan.
+2. **A corporate insider's own open-market stock purchase** -- via
+   `src/sec_edgar_client.py`, which reads SEC EDGAR directly (free, no API
+   key). Insiders must file within 2 business days of the trade, so when
+   this fires it's a much timelier confirmation than Congress's 45-day
+   disclosure lag. Only genuine open-market purchases count (Form 4
+   transaction code `P`) -- stock grants, option exercises, and gifts don't
+   qualify.
+
+It's purely a narrowing filter -- it can only make the bot mirror *fewer*
+trades, never more. If a source is temporarily unavailable, that source is
+just skipped for that ticker rather than blocking the purchase outright
+(the SEC lookup is per-ticker and only runs for a disclosure that wasn't
+already confirmed by lobbying/contracts, so it adds at most a handful of
+extra requests per run, not one per disclosure fetched).
 
 ## Audit log
 
@@ -166,7 +179,8 @@ value running this more than once a day. Two options:
   `TRADING_HALTED` / `MAX_DRAWDOWN_PCT` / `MAX_POSITION_CONCENTRATION_PCT` /
   `MAX_PORTFOLIO_EXPOSURE_PCT` / `REQUIRE_CONFIRMING_SIGNAL` /
   `CONFIRMING_SIGNAL_LOOKBACK_DAYS` / `MIRROR_TRANSACTION_TYPES` /
-  `MIN_TRADE_AMOUNT` as repo variables, to use it. The workflow also
+  `MIN_TRADE_AMOUNT` / `SEC_EDGAR_USER_AGENT` (optional) as repo variables,
+  to use it. The workflow also
   needs `contents: write` permission (already set in the file) so it can
   commit the audit log back to the repo after each run.
 
