@@ -69,6 +69,10 @@
   section { margin-bottom: 28px; }
   section h2 { font-size: 15px; color: var(--text-secondary); margin: 0 0 10px; }
 
+  a { color: var(--series-1); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .ticker-link { font-weight: 600; }
+
   table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--gridline); }
   th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
@@ -117,10 +121,13 @@
   @media (prefers-reduced-motion: reduce) {
     .news-card { animation: none; }
   }
+  .news-card .ticker-badges { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
   .news-card .ticker-badge {
     font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
-    background: var(--critical); color: #ffffff; flex-shrink: 0;
+    background: var(--critical); color: #ffffff !important; flex-shrink: 0;
+    text-decoration: none;
   }
+  .news-card .ticker-badge:hover { text-decoration: underline; }
   .news-card .headline { font-size: 13px; flex: 1; min-width: 0; font-weight: 600; }
   .news-card .headline a { color: var(--text-primary); }
   .news-card .meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
@@ -253,6 +260,12 @@ const fmtPct = (n) => n == null ? '—' : (n * 100).toFixed(2) + '%';
 const fmtDate = (s) => s ? new Date(s).toLocaleString() : '—';
 const escapeHtml = (s) => (s ?? '').toString().replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+const TICKER_INFO_BASE = 'https://finance.yahoo.com/quote/';
+const tickerLink = (symbol) => symbol
+  ? `<a class="ticker-link" href="${TICKER_INFO_BASE}${encodeURIComponent(symbol)}" target="_blank" rel="noopener noreferrer">${escapeHtml(symbol)}</a>`
+  : '—';
+const tickerLinks = (symbols) => (symbols && symbols.length) ? symbols.map(tickerLink).join(', ') : '—';
+
 function renderRows(tbodyId, rows, colCount, rowFn) {
   const tbody = document.getElementById(tbodyId);
   if (!rows || rows.length === 0) {
@@ -271,13 +284,15 @@ function renderNewsAlerts(alerts) {
   }
   container.hidden = false;
   list.innerHTML = alerts.map(a => {
-    const tickers = (a.symbols || []).join(', ');
+    const tickerBadges = (a.symbols || [])
+      .map(t => `<a class="ticker-badge" href="${TICKER_INFO_BASE}${encodeURIComponent(t)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t)}</a>`)
+      .join(' ');
     const sellButtons = (a.symbols || [])
       .map(t => `<button class="sell-btn" onclick="sellPosition('${escapeHtml(t)}', this)">Sell ${escapeHtml(t)}</button>`)
       .join(' ');
     return `
       <div class="news-card">
-        <span class="ticker-badge">${escapeHtml(tickers)}</span>
+        <span class="ticker-badges">${tickerBadges}</span>
         <span class="headline"><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.headline)}</a></span>
         <span class="meta">${escapeHtml(a.source)} &middot; ${fmtDate(a.created_at)}</span>
         ${sellButtons}
@@ -438,7 +453,7 @@ async function refresh() {
 
   renderRows('positions-body', data.positions, 7, (p) => `
     <tr>
-      <td>${escapeHtml(p.symbol)}</td>
+      <td>${tickerLink(p.symbol)}</td>
       <td class="num">${p.qty}</td>
       <td class="num">${fmtMoney(p.avg_entry_price)}</td>
       <td class="num">${fmtMoney(p.current_price)}</td>
@@ -451,7 +466,7 @@ async function refresh() {
 
   renderRows('orders-body', data.orders, 7, (o) => `
     <tr>
-      <td>${escapeHtml(o.symbol)}</td>
+      <td>${tickerLink(o.symbol)}</td>
       <td>${escapeHtml(o.side)}</td>
       <td class="num">${o.notional != null ? fmtMoney(o.notional) : '—'}</td>
       <td class="num">${o.qty ?? '—'}</td>
@@ -463,7 +478,7 @@ async function refresh() {
   renderRows('disclosures-body', data.disclosures, 5, (d) => `
     <tr>
       <td>${escapeHtml(d.representative)}</td>
-      <td>${escapeHtml(d.ticker)}</td>
+      <td>${tickerLink(d.ticker)}</td>
       <td>${escapeHtml(d.transaction_type)}</td>
       <td>${escapeHtml(d.raw_range)}</td>
       <td>${fmtDate(d.filed_date)}</td>
@@ -473,14 +488,14 @@ async function refresh() {
     <tr>
       <td><span class="decision-badge ${escapeHtml(dec.decision)}">${escapeHtml(dec.decision).toUpperCase()}</span></td>
       <td>${escapeHtml(dec.representative)}</td>
-      <td>${escapeHtml(dec.ticker)}</td>
+      <td>${tickerLink(dec.ticker)}</td>
       <td>${escapeHtml(dec.reason)}</td>
       <td>${fmtDate(dec.logged_at)}</td>
     </tr>`);
 
   renderRows('news-feed-body', data.news_alerts, 4, (a) => `
     <tr>
-      <td>${escapeHtml((a.symbols || []).join(', '))}</td>
+      <td>${tickerLinks(a.symbols)}</td>
       <td><a href="${escapeHtml(a.url)}" target="_blank" rel="noopener">${escapeHtml(a.headline)}</a></td>
       <td>${escapeHtml(a.source)}</td>
       <td>${fmtDate(a.created_at)}</td>
