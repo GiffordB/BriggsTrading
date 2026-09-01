@@ -38,6 +38,13 @@ class Config:
     lookback_days: int = int(os.getenv("LOOKBACK_DAYS", "7"))
     dry_run: bool = _bool("DRY_RUN", True)
 
+    trading_halted: bool = _bool("TRADING_HALTED", False)
+    max_drawdown_pct: float = float(os.getenv("MAX_DRAWDOWN_PCT", "0.15"))
+    max_position_concentration_pct: float = float(
+        os.getenv("MAX_POSITION_CONCENTRATION_PCT", "0.20")
+    )
+    max_portfolio_exposure_pct: float = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "0.75"))
+
     def validate(self) -> None:
         if not self.quiver_api_token:
             raise ValueError("QUIVER_API_TOKEN is not set")

@@ -22,3 +22,11 @@ services:
         sync: false
       - key: LOOKBACK_DAYS
         value: "7"
+      - key: TRADING_HALTED
+        value: "false"
+      - key: MAX_DRAWDOWN_PCT
+        value: "0.15"
+      - key: MAX_POSITION_CONCENTRATION_PCT
+        value: "0.20"
+      - key: MAX_PORTFOLIO_EXPOSURE_PCT
+        value: "0.75"

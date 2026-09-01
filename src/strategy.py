@@ -13,62 +13,85 @@ _SELL_TRANSACTION_TYPES = {"sale (full)", "sale (partial)", "sale"}
 
 
 @dataclass(frozen=True)
-class PlannedOrder:
+class Decision:
     disclosure: Disclosure
-    side: OrderSide
-    notional: float
+    action: str  # "buy", "sell", or "skip"
+    reason: str
+    notional: float = 0.0
+
+    @property
+    def side(self) -> OrderSide | None:
+        if self.action == "buy":
+            return OrderSide.BUY
+        if self.action == "sell":
+            return OrderSide.SELL
+        return None
 
 
-def _passes_filters(disclosure: Disclosure, config: Config) -> bool:
+def _filter_reason(disclosure: Disclosure, config: Config) -> str | None:
+    """Returns a skip reason if the disclosure fails the basic filters, else None."""
     if disclosure.transaction_type not in config.mirror_transaction_types:
-        return False
+        return (
+            f"transaction type '{disclosure.transaction_type}' not in "
+            f"MIRROR_TRANSACTION_TYPES {config.mirror_transaction_types}"
+        )
     if disclosure.amount_low < config.min_trade_amount:
-        return False
+        return (
+            f"amount range '{disclosure.raw_range}' below MIN_TRADE_AMOUNT "
+            f"(${config.min_trade_amount:,.0f})"
+        )
     if config.followed_members and disclosure.representative not in config.followed_members:
-        return False
-    return True
+        return f"'{disclosure.representative}' not in FOLLOWED_MEMBERS"
+    return None
 
 
-def plan_orders(
+def evaluate_disclosures(
     disclosures: list[Disclosure], config: Config, broker: AlpacaClient
-) -> list[PlannedOrder]:
-    """Turn qualifying disclosures into concrete, sized orders.
+) -> list[Decision]:
+    """Evaluates every disclosure and returns a Decision for each one -- including
+    skips, with a human-readable reason -- so the full set can be logged for audit,
+    not just the ones that end up as orders.
 
-    Only decides *what* to trade -- it never talks to the broker beyond read-only
-    checks (tradability, existing positions, equity), so it's safe to call in
-    DRY_RUN mode.
+    Only makes read-only broker calls (tradability, existing positions, equity), so
+    this is always safe to call, including in DRY_RUN mode.
     """
     equity = broker.get_equity()
     buying_power = broker.get_buying_power()
     per_trade_notional = min(equity * config.position_size_pct, config.max_notional_per_trade)
-
-    planned: list[PlannedOrder] = []
     remaining_run_budget = min(config.max_notional_per_run, buying_power)
 
+    decisions: list[Decision] = []
+
     for disclosure in disclosures:
-        if not _passes_filters(disclosure, config):
+        filter_reason = _filter_reason(disclosure, config)
+        if filter_reason:
+            decisions.append(Decision(disclosure, "skip", filter_reason))
             continue
 
         if not broker.is_tradable(disclosure.ticker):
-            logger.info("Skipping %s: not tradable on Alpaca", disclosure.ticker)
+            decisions.append(Decision(disclosure, "skip", "not tradable on Alpaca"))
             continue
 
         transaction_type_lower = disclosure.transaction_type.lower()
         if transaction_type_lower in _SELL_TRANSACTION_TYPES:
             if not broker.has_open_position(disclosure.ticker):
-                logger.info(
-                    "Skipping sell mirror for %s: no open position to sell", disclosure.ticker
+                decisions.append(
+                    Decision(disclosure, "skip", "no open position to sell")
                 )
                 continue
-            planned.append(PlannedOrder(disclosure=disclosure, side=OrderSide.SELL, notional=0))
+            decisions.append(Decision(disclosure, "sell", "mirroring disclosed sale"))
             continue
 
         notional = min(per_trade_notional, remaining_run_budget)
         if notional < 1:
-            logger.info("Run notional budget exhausted, skipping remaining disclosures")
-            break
+            decisions.append(
+                Decision(disclosure, "skip", "MAX_NOTIONAL_PER_RUN budget exhausted")
+            )
+            continue
 
-        planned.append(PlannedOrder(disclosure=disclosure, side=OrderSide.BUY, notional=notional))
+        decisions.append(
+            Decision(disclosure, "buy", "mirroring disclosed purchase", notional=notional)
+        )
         remaining_run_budget -= notional
 
-    return planned
+    return decisions

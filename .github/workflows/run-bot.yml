@@ -8,6 +8,9 @@ on:
     - cron: "0 22 * * 1-5" # 22:00 UTC, weekdays (after US market close)
   workflow_dispatch: {}
 
+permissions:
+  contents: write # needed to commit the audit log back to the repo
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -32,9 +35,20 @@ jobs:
           ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
           CONFIRM_LIVE_TRADING: ${{ vars.CONFIRM_LIVE_TRADING }}
           DRY_RUN: ${{ vars.DRY_RUN || 'true' }}
+          TRADING_HALTED: ${{ vars.TRADING_HALTED || 'false' }}
+          MAX_DRAWDOWN_PCT: ${{ vars.MAX_DRAWDOWN_PCT || '0.15' }}
+          MAX_POSITION_CONCENTRATION_PCT: ${{ vars.MAX_POSITION_CONCENTRATION_PCT || '0.20' }}
+          MAX_PORTFOLIO_EXPOSURE_PCT: ${{ vars.MAX_PORTFOLIO_EXPOSURE_PCT || '0.75' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4
         with:
           name: seen-trades-db
           path: seen_trades.db
+      - name: Commit audit log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/decisions_log.jsonl
+          git diff --cached --quiet || git commit -m "Update decisions audit log [skip ci]"
+          git push

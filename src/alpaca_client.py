@@ -1,6 +1,6 @@
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
-from alpaca.trading.requests import GetOrdersRequest, MarketOrderRequest
+from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest, MarketOrderRequest
 
 
 class AlpacaClient:
@@ -41,6 +41,15 @@ class AlpacaClient:
                 "unrealized_plpc": float(p.unrealized_plpc),
             }
             for p in positions
+        ]
+
+    def get_portfolio_history(self, period: str = "1M", timeframe: str = "1D") -> list[dict]:
+        request = GetPortfolioHistoryRequest(period=period, timeframe=timeframe)
+        history = self._client.get_portfolio_history(request)
+        return [
+            {"timestamp": ts, "equity": equity}
+            for ts, equity in zip(history.timestamp or [], history.equity or [])
+            if equity is not None
         ]
 
     def list_recent_orders(self, limit: int = 25) -> list[dict]:

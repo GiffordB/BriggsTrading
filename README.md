@@ -66,6 +66,55 @@ Sell disclosures only ever close a position this bot already opened for you
 -- it will never short a stock or sell something you hold for unrelated
 reasons.
 
+## Risk guard (independent of the strategy above)
+
+Before any order is submitted, a separate check in `src/risk_guard.py` runs
+-- deliberately independent of the strategy's own filters, so a bug in
+`strategy.py` can't bypass it. Configured in `.env`:
+
+| Setting | What it does |
+|---|---|
+| `TRADING_HALTED` | Manual kill switch -- set `true` to immediately stop all new orders |
+| `MAX_DRAWDOWN_PCT` | Auto-halts trading if equity has fallen this much below its 3-month peak (from Alpaca's own portfolio history) |
+| `MAX_POSITION_CONCENTRATION_PCT` | Blocks a buy that would push any single position above this fraction of account equity |
+| `MAX_PORTFOLIO_EXPOSURE_PCT` | Blocks new buys once total position value reaches this fraction of account equity |
+
+When halted, the bot still evaluates and logs every disclosure (so you can
+see what it *would* have done), it just skips submitting orders -- and
+doesn't mark those disclosures as "seen", so they're retried automatically
+once the halt clears.
+
+## Audit log
+
+Every disclosure the bot evaluates -- mirrored or not -- is logged with its
+outcome and reason to `data/decisions_log.jsonl`, which the GitHub Actions
+workflow commits back to the repo after each run (using GitHub's own
+built-in token, no extra secrets needed). The dashboard reads this file
+straight from GitHub to show a live audit trail alongside the account data.
+
+## Performance metrics
+
+The dashboard also shows Sharpe ratio, max drawdown, and CAGR, computed
+directly from Alpaca's own portfolio history endpoint (`get_portfolio_history`)
+-- no separate tracking database needed. "Open position win rate" is a
+simplified proxy (% of currently open positions with positive unrealized
+P/L), not a rigorous realized-P/L trade ledger.
+
+## Backtesting
+
+Before trusting a filter change, sanity-check it against history:
+```
+python -m src.backtest
+```
+This simulates the same strategy filters against Quiver's historical
+disclosure data and Alpaca's free historical daily bars over the last
+`BACKTEST_DAYS` (default 180), reporting total return, CAGR, max drawdown,
+Sharpe ratio, and win rate on closed trades. It's a real but simplified
+simulation -- fills happen at each disclosure's filed-date close price, with
+no slippage or commission modeling, and equity is only marked-to-market at
+trade-event dates rather than daily. Treat it as a sanity check, not a
+guarantee of future performance.
+
 ## Scheduling
 
 Congress disclosure data doesn't update faster than daily, so there's no
@@ -79,8 +128,11 @@ value running this more than once a day. Two options:
   each run. That's a bit more fragile than a persistent machine -- if you
   have any server or Raspberry Pi lying around, cron there is more robust.
   Add `QUIVER_API_TOKEN`, `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` as repo
-  secrets, and `ALPACA_PAPER` / `DRY_RUN` / `CONFIRM_LIVE_TRADING` as repo
-  variables, to use it.
+  secrets, and `ALPACA_PAPER` / `DRY_RUN` / `CONFIRM_LIVE_TRADING` /
+  `TRADING_HALTED` / `MAX_DRAWDOWN_PCT` / `MAX_POSITION_CONCENTRATION_PCT` /
+  `MAX_PORTFOLIO_EXPOSURE_PCT` as repo variables, to use it. The workflow also
+  needs `contents: write` permission (already set in the file) so it can
+  commit the audit log back to the repo after each run.
 
 ## Dashboard
 

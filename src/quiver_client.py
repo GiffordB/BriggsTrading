@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 
@@ -35,6 +35,35 @@ class Disclosure:
         return f"{self.representative}|{self.ticker}|{self.transaction_date}|{self.transaction_type}|{self.raw_range}"
 
 
+def _parse_row(row: dict) -> Disclosure | None:
+    filed_date_str = row.get("Filed") or row.get("ReportDate")
+    ticker = row.get("Ticker")
+    if not filed_date_str or not ticker:
+        return None
+
+    raw_range = row.get("Range") or row.get("Amount") or ""
+    return Disclosure(
+        trade_id=str(row.get("_id") or row.get("ID") or ""),
+        representative=row.get("Representative") or row.get("Senator") or "unknown",
+        ticker=ticker,
+        transaction_type=row.get("Transaction", "unknown"),
+        transaction_date=row.get("TransactionDate", ""),
+        filed_date=filed_date_str,
+        amount_low=_RANGE_LOW.get(raw_range, 0),
+        raw_range=raw_range,
+    )
+
+
+def _parse_filed_date(disclosure: Disclosure) -> datetime | None:
+    try:
+        filed = datetime.fromisoformat(disclosure.filed_date.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if filed.tzinfo is None:
+        filed = filed.replace(tzinfo=timezone.utc)
+    return filed
+
+
 class QuiverClient:
     def __init__(self, api_token: str):
         self._session = requests.Session()
@@ -46,8 +75,8 @@ class QuiverClient:
         """Fetch congress trading disclosures filed in the last `lookback_days` days.
 
         Uses Quiver's /beta/live/congresstrading endpoint. Quiver's API has changed
-        shape before -- if this starts returning errors, check the current schema
-        at https://api.quiverquant.com/docs/ and adjust the field names below.
+        shape before -- if this starts errorring, check the current schema at
+        https://api.quiverquant.com/docs/ and adjust the field names in _parse_row.
         """
         resp = self._session.get(f"{QUIVER_BASE_URL}/live/congresstrading", timeout=30)
         resp.raise_for_status()
@@ -56,35 +85,40 @@ class QuiverClient:
         cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
         disclosures = []
         for row in rows:
-            filed_date_str = row.get("Filed") or row.get("ReportDate")
-            if not filed_date_str:
+            disclosure = _parse_row(row)
+            if disclosure is None:
                 continue
-            try:
-                filed_date = datetime.fromisoformat(filed_date_str.replace("Z", "+00:00"))
-            except ValueError:
+            filed = _parse_filed_date(disclosure)
+            if filed is None or filed < cutoff:
                 continue
-            if filed_date.tzinfo is None:
-                filed_date = filed_date.replace(tzinfo=timezone.utc)
-            if filed_date < cutoff:
-                continue
-
-            ticker = row.get("Ticker")
-            if not ticker:
-                continue
-
-            raw_range = row.get("Range") or row.get("Amount") or ""
-            amount_low = _RANGE_LOW.get(raw_range, 0)
-
-            disclosures.append(
-                Disclosure(
-                    trade_id=str(row.get("_id") or row.get("ID") or ""),
-                    representative=row.get("Representative") or row.get("Senator") or "unknown",
-                    ticker=ticker,
-                    transaction_type=row.get("Transaction", "unknown"),
-                    transaction_date=row.get("TransactionDate", ""),
-                    filed_date=filed_date_str,
-                    amount_low=amount_low,
-                    raw_range=raw_range,
-                )
-            )
+            disclosures.append(disclosure)
         return disclosures
+
+    def fetch_historical_congress_trades(
+        self, start_date: date, end_date: date
+    ) -> list[Disclosure]:
+        """Fetch the full historical congress trading dataset (for backtesting) and
+        filter to disclosures filed between start_date and end_date, inclusive.
+
+        Uses Quiver's /beta/bulk/congresstrading endpoint, which returns the entire
+        history in one response -- filtering happens client-side. This is a much
+        bigger payload than the live endpoint, so only call it for offline backtests,
+        not from the scheduled bot.
+        """
+        resp = self._session.get(f"{QUIVER_BASE_URL}/bulk/congresstrading", timeout=120)
+        resp.raise_for_status()
+        rows = resp.json()
+
+        start_dt = datetime.combine(start_date, datetime.min.time(), tzinfo=timezone.utc)
+        end_dt = datetime.combine(end_date, datetime.min.time(), tzinfo=timezone.utc)
+
+        disclosures = []
+        for row in rows:
+            disclosure = _parse_row(row)
+            if disclosure is None:
+                continue
+            filed = _parse_filed_date(disclosure)
+            if filed is None or not (start_dt <= filed <= end_dt):
+                continue
+            disclosures.append(disclosure)
+        return sorted(disclosures, key=lambda d: d.filed_date)

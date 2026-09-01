@@ -78,6 +78,19 @@
 
   .updated { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
   .table-scroll { overflow-x: auto; }
+
+  .risk-banner {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; margin-bottom: 20px; border: 1px solid var(--border);
+  }
+  .risk-banner.ok { color: var(--good); }
+  .risk-banner.halted { color: var(--critical); background: color-mix(in srgb, var(--critical) 10%, var(--surface-1)); }
+  .risk-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .risk-banner ul { margin: 4px 0 0; padding-left: 18px; }
+
+  .decision-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
+  .decision-badge.buy, .decision-badge.sell { color: var(--good); }
+  .decision-badge.skip { color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -90,11 +103,23 @@
     </div>
   </header>
 
+  <div class="risk-banner ok" id="risk-banner">
+    <span class="dot"></span>
+    <span id="risk-banner-text">Checking risk status&hellip;</span>
+  </div>
+
   <div class="stat-row" id="stat-row">
     <div class="stat-tile"><div class="label">Equity</div><div class="value" id="stat-equity">&mdash;</div></div>
     <div class="stat-tile"><div class="label">Buying Power</div><div class="value" id="stat-buying-power">&mdash;</div></div>
     <div class="stat-tile"><div class="label">Day P/L</div><div class="value" id="stat-day-pl">&mdash;</div></div>
     <div class="stat-tile"><div class="label">Open Positions</div><div class="value" id="stat-positions">&mdash;</div></div>
+  </div>
+
+  <div class="stat-row" id="metrics-row">
+    <div class="stat-tile"><div class="label">Sharpe Ratio (3mo)</div><div class="value" id="stat-sharpe">&mdash;</div></div>
+    <div class="stat-tile"><div class="label">Max Drawdown (3mo)</div><div class="value" id="stat-drawdown">&mdash;</div></div>
+    <div class="stat-tile"><div class="label">CAGR (3mo)</div><div class="value" id="stat-cagr">&mdash;</div></div>
+    <div class="stat-tile"><div class="label">Open Position Win Rate</div><div class="value" id="stat-winrate">&mdash;</div></div>
   </div>
 
   <section>
@@ -131,6 +156,18 @@
           <th>Member</th><th>Ticker</th><th>Type</th><th>Amount</th><th>Filed</th>
         </tr></thead>
         <tbody id="disclosures-body"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Audit Log &mdash; every disclosure evaluated</h2>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Decision</th><th>Member</th><th>Ticker</th><th>Reason</th><th>Logged</th>
+        </tr></thead>
+        <tbody id="decisions-body"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -175,6 +212,26 @@ async function refresh() {
   dayPlEl.className = 'value ' + (a.day_pl > 0 ? 'good' : a.day_pl < 0 ? 'critical' : '');
   document.getElementById('stat-positions').textContent = data.positions.length;
 
+  const banner = document.getElementById('risk-banner');
+  const bannerText = document.getElementById('risk-banner-text');
+  if (data.risk && data.risk.halted) {
+    banner.className = 'risk-banner halted';
+    bannerText.innerHTML = 'Trading halted by risk guard:<ul>' + data.risk.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('') + '</ul>';
+  } else if (data.risk) {
+    banner.className = 'risk-banner ok';
+    bannerText.textContent = `Risk OK — drawdown ${data.risk.drawdown_pct?.toFixed(1) ?? '—'}%, exposure ${data.risk.exposure_pct?.toFixed(1) ?? '—'}% of equity`;
+  }
+
+  const m = data.metrics || {};
+  document.getElementById('stat-sharpe').textContent = m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : 'n/a';
+  const ddEl = document.getElementById('stat-drawdown');
+  ddEl.textContent = m.max_drawdown_pct != null ? m.max_drawdown_pct.toFixed(1) + '%' : 'n/a';
+  ddEl.className = 'value ' + (m.max_drawdown_pct > 5 ? 'critical' : '');
+  const cagrEl = document.getElementById('stat-cagr');
+  cagrEl.textContent = m.cagr_pct != null ? m.cagr_pct.toFixed(1) + '%' : 'n/a';
+  cagrEl.className = 'value ' + (m.cagr_pct > 0 ? 'good' : m.cagr_pct < 0 ? 'critical' : '');
+  document.getElementById('stat-winrate').textContent = m.open_position_win_rate_pct != null ? m.open_position_win_rate_pct.toFixed(0) + '%' : 'n/a';
+
   renderRows('positions-body', data.positions, 6, (p) => `
     <tr>
       <td>${escapeHtml(p.symbol)}</td>
@@ -203,6 +260,15 @@ async function refresh() {
       <td>${escapeHtml(d.transaction_type)}</td>
       <td>${escapeHtml(d.raw_range)}</td>
       <td>${fmtDate(d.filed_date)}</td>
+    </tr>`);
+
+  renderRows('decisions-body', data.decisions, 5, (dec) => `
+    <tr>
+      <td><span class="decision-badge ${escapeHtml(dec.decision)}">${escapeHtml(dec.decision).toUpperCase()}</span></td>
+      <td>${escapeHtml(dec.representative)}</td>
+      <td>${escapeHtml(dec.ticker)}</td>
+      <td>${escapeHtml(dec.reason)}</td>
+      <td>${fmtDate(dec.logged_at)}</td>
     </tr>`);
 
   document.getElementById('updated').textContent = 'Last updated ' + new Date().toLocaleTimeString();
