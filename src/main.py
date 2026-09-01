@@ -54,7 +54,22 @@ def run() -> None:
         new_disclosures = [d for d in disclosures if not store.has_seen(d.dedupe_key)]
         logger.info("%d disclosures are new (not previously acted on)", len(new_disclosures))
 
-        decisions = evaluate_disclosures(new_disclosures, config, broker)
+        confirming_tickers = None
+        if config.require_confirming_signal:
+            lobbying = quiver.fetch_recent_lobbying_tickers(config.confirming_signal_lookback_days)
+            contracts = quiver.fetch_recent_gov_contract_tickers(config.confirming_signal_lookback_days)
+            if lobbying is None and contracts is None:
+                logger.warning(
+                    "Confirming signal data unavailable this run; skipping that filter"
+                )
+            else:
+                confirming_tickers = (lobbying or set()) | (contracts or set())
+                logger.info(
+                    "Confirming signal: %d tickers with recent lobbying/gov-contract activity",
+                    len(confirming_tickers),
+                )
+
+        decisions = evaluate_disclosures(new_disclosures, config, broker, confirming_tickers)
 
         for decision in decisions:
             d = decision.disclosure

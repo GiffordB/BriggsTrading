@@ -45,6 +45,9 @@ class Config:
     )
     max_portfolio_exposure_pct: float = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "0.75"))
 
+    require_confirming_signal: bool = _bool("REQUIRE_CONFIRMING_SIGNAL", False)
+    confirming_signal_lookback_days: int = int(os.getenv("CONFIRMING_SIGNAL_LOOKBACK_DAYS", "90"))
+
     def validate(self) -> None:
         if not self.quiver_api_token:
             raise ValueError("QUIVER_API_TOKEN is not set")

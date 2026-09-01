@@ -46,11 +46,20 @@ def _filter_reason(disclosure: Disclosure, config: Config) -> str | None:
 
 
 def evaluate_disclosures(
-    disclosures: list[Disclosure], config: Config, broker: AlpacaClient
+    disclosures: list[Disclosure],
+    config: Config,
+    broker: AlpacaClient,
+    confirming_tickers: set[str] | None = None,
 ) -> list[Decision]:
     """Evaluates every disclosure and returns a Decision for each one -- including
     skips, with a human-readable reason -- so the full set can be logged for audit,
     not just the ones that end up as orders.
+
+    `confirming_tickers`, when REQUIRE_CONFIRMING_SIGNAL is on, is the set of
+    tickers with recent lobbying or government contract activity (fetched once
+    per run by main.py). Passing None means either the feature is off or that
+    data was unavailable this run -- either way, the filter is not applied,
+    rather than blocking every purchase.
 
     Only makes read-only broker calls (tradability, existing positions, equity), so
     this is always safe to call, including in DRY_RUN mode.
@@ -82,6 +91,21 @@ def evaluate_disclosures(
             decisions.append(Decision(disclosure, "sell", "mirroring disclosed sale"))
             continue
 
+        if (
+            config.require_confirming_signal
+            and confirming_tickers is not None
+            and disclosure.ticker not in confirming_tickers
+        ):
+            decisions.append(
+                Decision(
+                    disclosure,
+                    "skip",
+                    f"no recent lobbying/gov-contract activity for {disclosure.ticker} "
+                    f"in the last {config.confirming_signal_lookback_days} days",
+                )
+            )
+            continue
+
         notional = min(per_trade_notional, remaining_run_budget)
         if notional < 1:
             decisions.append(
@@ -89,9 +113,10 @@ def evaluate_disclosures(
             )
             continue
 
-        decisions.append(
-            Decision(disclosure, "buy", "mirroring disclosed purchase", notional=notional)
-        )
+        reason = "mirroring disclosed purchase"
+        if config.require_confirming_signal and confirming_tickers is not None:
+            reason += " (confirmed by recent lobbying/gov-contract activity)"
+        decisions.append(Decision(disclosure, "buy", reason, notional=notional))
         remaining_run_budget -= notional
 
     return decisions

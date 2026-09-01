@@ -1,7 +1,10 @@
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 QUIVER_BASE_URL = "https://api.quiverquant.com/beta"
 
@@ -122,3 +125,49 @@ class QuiverClient:
                 continue
             disclosures.append(disclosure)
         return sorted(disclosures, key=lambda d: d.filed_date)
+
+    def _fetch_recent_tickers(self, endpoint: str, lookback_days: int) -> set[str]:
+        """Shared helper for Quiver datasets shaped like {Ticker, Amount, Date} --
+        both lobbying and government contracts use this shape. Returns the set of
+        tickers with at least one event in the lookback window."""
+        resp = self._session.get(f"{QUIVER_BASE_URL}/{endpoint}", timeout=30)
+        resp.raise_for_status()
+        rows = resp.json()
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+        tickers = set()
+        for row in rows:
+            ticker = row.get("Ticker")
+            date_str = row.get("Date")
+            if not ticker or not date_str:
+                continue
+            try:
+                event_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if event_date.tzinfo is None:
+                event_date = event_date.replace(tzinfo=timezone.utc)
+            if event_date >= cutoff:
+                tickers.add(ticker)
+        return tickers
+
+    def fetch_recent_lobbying_tickers(self, lookback_days: int) -> set[str] | None:
+        """Tickers with a corporate lobbying disclosure in the last `lookback_days`
+        days, via /beta/live/lobbying. Returns None (rather than raising) on any
+        error -- this is a confirming signal, not core functionality, so a Quiver-
+        side issue here shouldn't crash the whole bot run."""
+        try:
+            return self._fetch_recent_tickers("live/lobbying", lookback_days)
+        except Exception:
+            logger.warning("Could not fetch lobbying data", exc_info=True)
+            return None
+
+    def fetch_recent_gov_contract_tickers(self, lookback_days: int) -> set[str] | None:
+        """Tickers with a government contract award in the last `lookback_days`
+        days, via /beta/live/govcontractsall. Returns None on error, same rationale
+        as fetch_recent_lobbying_tickers."""
+        try:
+            return self._fetch_recent_tickers("live/govcontractsall", lookback_days)
+        except Exception:
+            logger.warning("Could not fetch government contracts data", exc_info=True)
+            return None

@@ -39,6 +39,8 @@ jobs:
           MAX_DRAWDOWN_PCT: ${{ vars.MAX_DRAWDOWN_PCT || '0.15' }}
           MAX_POSITION_CONCENTRATION_PCT: ${{ vars.MAX_POSITION_CONCENTRATION_PCT || '0.20' }}
           MAX_PORTFOLIO_EXPOSURE_PCT: ${{ vars.MAX_PORTFOLIO_EXPOSURE_PCT || '0.75' }}
+          REQUIRE_CONFIRMING_SIGNAL: ${{ vars.REQUIRE_CONFIRMING_SIGNAL || 'false' }}
+          CONFIRMING_SIGNAL_LOOKBACK_DAYS: ${{ vars.CONFIRMING_SIGNAL_LOOKBACK_DAYS || '90' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4
