@@ -42,6 +42,7 @@ jobs:
           REQUIRE_CONFIRMING_SIGNAL: ${{ vars.REQUIRE_CONFIRMING_SIGNAL || 'false' }}
           CONFIRMING_SIGNAL_LOOKBACK_DAYS: ${{ vars.CONFIRMING_SIGNAL_LOOKBACK_DAYS || '90' }}
           MIRROR_TRANSACTION_TYPES: ${{ vars.MIRROR_TRANSACTION_TYPES || 'Purchase' }}
+          MIN_TRADE_AMOUNT: ${{ vars.MIN_TRADE_AMOUNT || '15000' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4
