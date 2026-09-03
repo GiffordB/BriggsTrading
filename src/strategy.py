@@ -29,9 +29,28 @@ class Decision:
         return None
 
 
+def _matches_configured_transaction_type(disclosure_type: str, configured_types: list[str]) -> bool:
+    """Case-insensitive match, with sale variants treated as one category.
+
+    Quiver's live API has been observed to only ever return the bare word
+    'Sale' (never 'Sale (Full)'/'Sale (Partial)' as the official STOCK Act
+    filing terminology would suggest), so a config entry of any sale variant
+    must match a disclosure of any other sale variant -- an exact-string
+    comparison silently dropped every sale disclosure even with sale-mirroring
+    configured on.
+    """
+    disclosure_lower = disclosure_type.strip().lower()
+    configured_lower = {c.strip().lower() for c in configured_types}
+    if disclosure_lower in configured_lower:
+        return True
+    return disclosure_lower in _SELL_TRANSACTION_TYPES and bool(
+        configured_lower & _SELL_TRANSACTION_TYPES
+    )
+
+
 def _filter_reason(disclosure: Disclosure, config: Config) -> str | None:
     """Returns a skip reason if the disclosure fails the basic filters, else None."""
-    if disclosure.transaction_type not in config.mirror_transaction_types:
+    if not _matches_configured_transaction_type(disclosure.transaction_type, config.mirror_transaction_types):
         return (
             f"transaction type '{disclosure.transaction_type}' not in "
             f"MIRROR_TRANSACTION_TYPES {config.mirror_transaction_types}"
