@@ -11,6 +11,7 @@ from src.config import Config
 from src.metrics import compute_metrics
 from src.news_sentiment import is_bad_news
 from src.quiver_client import QuiverClient
+from src.real_holdings_store import RealHoldingsStore
 from src.risk_guard import assess_risk
 
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +22,13 @@ app = Flask(__name__)
 config = Config()
 broker = AlpacaClient(config.alpaca_api_key, config.alpaca_secret_key, config.alpaca_paper)
 quiver = QuiverClient(config.quiver_api_token)
+real_holdings_store = RealHoldingsStore(config.github_pat, config.github_repo)
+
+if not config.github_pat:
+    logger.warning(
+        "GITHUB_PAT is not set -- the Real Holdings tracker is disabled (nothing "
+        "to compare against the paper bot will be shown)."
+    )
 
 if not config.dashboard_username or not config.dashboard_password:
     logger.warning(
@@ -172,6 +180,73 @@ def _price_history_for_positions(positions: list[dict]) -> dict[str, list[dict]]
     return _price_history_cache["data"]
 
 
+def _compute_real_holdings() -> dict:
+    """Enriches the user's manually-entered real holdings with a current price --
+    live from Alpaca where the ticker is tradable there, otherwise falling back
+    to the holding's own manual_price (e.g. SPACX / other private-company stock
+    Alpaca has no quote for at all). Also rolls up an overall return % so it can
+    be compared, directionally, against the paper bot's."""
+    holdings = real_holdings_store.list_holdings()
+    tickers = sorted({h["ticker"] for h in holdings})
+
+    live_prices: dict[str, float] = {}
+    if tickers:
+        try:
+            history = broker.get_price_history(tickers, lookback_days=5)
+            for ticker, series in history.items():
+                if series:
+                    live_prices[ticker] = series[-1]["close"]
+        except Exception:
+            logger.exception("Could not fetch live prices for real holdings")
+
+    enriched = []
+    total_cost = 0.0
+    total_value = 0.0
+    total_value_known = True
+    for h in holdings:
+        cost_basis = h["shares"] * h["cost_per_share"]
+        total_cost += cost_basis
+
+        current_price = live_prices.get(h["ticker"])
+        price_source = "live" if current_price is not None else None
+        if current_price is None and h.get("manual_price") is not None:
+            current_price = h["manual_price"]
+            price_source = "manual"
+
+        market_value = h["shares"] * current_price if current_price is not None else None
+        gain_pct = (
+            (market_value / cost_basis - 1) * 100 if market_value is not None and cost_basis else None
+        )
+        if market_value is not None:
+            total_value += market_value
+        else:
+            total_value_known = False
+
+        enriched.append(
+            {
+                **h,
+                "cost_basis": cost_basis,
+                "current_price": current_price,
+                "price_source": price_source,
+                "market_value": market_value,
+                "gain_pct": gain_pct,
+            }
+        )
+
+    overall_return_pct = (
+        (total_value / total_cost - 1) * 100 if total_value_known and total_cost else None
+    )
+
+    return {
+        "holdings": enriched,
+        "totals": {
+            "cost_basis": total_cost,
+            "market_value": total_value if total_value_known else None,
+            "return_pct": overall_return_pct,
+        },
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html", paper=config.alpaca_paper, dry_run=config.dry_run)
@@ -248,6 +323,17 @@ def api_data():
         equity_curve = []
         metrics = {"error": str(exc)}
 
+    bot_return_pct = None
+    if len(equity_curve) >= 2 and equity_curve[0]["equity"]:
+        bot_return_pct = (equity_curve[-1]["equity"] / equity_curve[0]["equity"] - 1) * 100
+
+    try:
+        real_holdings = _compute_real_holdings()
+        real_holdings["bot_return_pct"] = bot_return_pct
+    except Exception:
+        logger.exception("Could not compute real holdings")
+        real_holdings = {"holdings": [], "totals": {}, "bot_return_pct": bot_return_pct}
+
     return jsonify(
         {
             "account": account,
@@ -261,6 +347,7 @@ def api_data():
             "equity_curve": equity_curve,
             "risk": risk,
             "metrics": metrics,
+            "real_holdings": real_holdings,
             "mode": {"paper": config.alpaca_paper, "dry_run": config.dry_run},
         }
     )
@@ -289,6 +376,88 @@ def api_sell():
 
     logger.warning("Manual sell triggered from dashboard for %s", ticker)
     return jsonify({"success": True, "ticker": ticker})
+
+
+@app.route("/api/real-holdings", methods=["POST"])
+def api_real_holdings_add():
+    if not config.github_pat:
+        return jsonify({"success": False, "error": "GITHUB_PAT is not configured"}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    ticker = (data.get("ticker") or "").strip()
+    account = (data.get("account") or "").strip()
+    try:
+        shares = float(data.get("shares"))
+        cost_per_share = float(data.get("cost_per_share"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "shares and cost_per_share must be numbers"}), 400
+    if not ticker or not account:
+        return jsonify({"success": False, "error": "ticker and account are required"}), 400
+
+    manual_price = data.get("manual_price")
+    try:
+        manual_price = float(manual_price) if manual_price not in (None, "") else None
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "manual_price must be a number"}), 400
+
+    try:
+        entry = real_holdings_store.add_holding(
+            ticker=ticker,
+            shares=shares,
+            cost_per_share=cost_per_share,
+            account=account,
+            manual_price=manual_price,
+            notes=(data.get("notes") or "").strip(),
+        )
+    except Exception as exc:
+        logger.exception("Could not add real holding")
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+    return jsonify({"success": True, "holding": entry})
+
+
+@app.route("/api/real-holdings/<holding_id>", methods=["PUT"])
+def api_real_holdings_update(holding_id: str):
+    if not config.github_pat:
+        return jsonify({"success": False, "error": "GITHUB_PAT is not configured"}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    fields: dict = {}
+    for key in ("ticker", "account", "notes"):
+        if key in data:
+            fields[key] = data[key]
+    for key in ("shares", "cost_per_share", "manual_price"):
+        if key in data:
+            try:
+                fields[key] = float(data[key]) if data[key] not in (None, "") else None
+            except (TypeError, ValueError):
+                return jsonify({"success": False, "error": f"{key} must be a number"}), 400
+
+    try:
+        updated = real_holdings_store.update_holding(holding_id, **fields)
+    except Exception as exc:
+        logger.exception("Could not update real holding %s", holding_id)
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+    if updated is None:
+        return jsonify({"success": False, "error": "No such holding"}), 404
+    return jsonify({"success": True, "holding": updated})
+
+
+@app.route("/api/real-holdings/<holding_id>", methods=["DELETE"])
+def api_real_holdings_delete(holding_id: str):
+    if not config.github_pat:
+        return jsonify({"success": False, "error": "GITHUB_PAT is not configured"}), 503
+
+    try:
+        deleted = real_holdings_store.delete_holding(holding_id)
+    except Exception as exc:
+        logger.exception("Could not delete real holding %s", holding_id)
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+    if not deleted:
+        return jsonify({"success": False, "error": "No such holding"}), 404
+    return jsonify({"success": True})
 
 
 if __name__ == "__main__":

@@ -202,6 +202,36 @@ from this repo in the Render dashboard, and set `QUIVER_API_TOKEN`,
 `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` as secret env vars there (they're marked
 `sync: false` so Render prompts for them rather than storing them in the repo).
 
+## Real Holdings tracker (optional)
+
+The dashboard has a "Real Holdings (manual) vs. Paper Bot" section for
+tracking your own actual investments -- accounts the bot has no API access to
+(Schwab, a 401k, pre-IPO shares, whatever) -- side by side with the paper
+bot's return %, so you can see whether the bot's trades are actually beating
+what you're already doing.
+
+Entries are added by hand from the dashboard (ticker or fund name, shares,
+cost per share, and which account it's in). There's no brokerage integration
+-- you update shares/cost as your statements change, e.g. after each 401k
+contribution.
+
+Pricing: if the ticker is one Alpaca has a live quote for, that's used
+automatically. Otherwise (a mutual fund like a Vanguard or JPMorgan fund, or
+a private company's stock) enter a "manual price" yourself and update it
+periodically from your statement -- the table marks each row `live` or
+`manual` so it's clear which is which.
+
+This is a directional comparison only: your real accounts may include
+contributions or withdrawals that a simple return % doesn't separate from
+actual investment gains, so treat it as a rough read, not an exact one.
+
+Entries persist as `data/real_holdings.json`, committed to this repo via the
+GitHub Contents API (same mechanism as the audit log, just read/write instead
+of append-only) -- there's no database. Set `GITHUB_PAT` (a token with
+`repo` scope, or a fine-grained token with Contents read/write on this repo)
+for the dashboard to use it; leave it unset and the section just stays empty
+with add/edit/delete disabled.
+
 ## Known limitations
 
 - The Quiver API response shape has changed before; if `src/quiver_client.py`

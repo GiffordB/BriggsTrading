@@ -61,6 +61,13 @@ class Config:
     dashboard_username: str = os.getenv("DASHBOARD_USERNAME", "")
     dashboard_password: str = os.getenv("DASHBOARD_PASSWORD", "")
 
+    # Dashboard-only: lets the "Real Holdings" tracker persist manual entries by
+    # committing to data/real_holdings.json via the GitHub Contents API -- the
+    # dashboard has no database of its own. Needs `repo` scope (classic PAT) or
+    # Contents read/write (fine-grained PAT) on GiffordB/BriggsTrading.
+    github_pat: str = os.getenv("GITHUB_PAT", "")
+    github_repo: str = os.getenv("GITHUB_REPO", "GiffordB/BriggsTrading")
+
     def validate(self) -> None:
         if not self.quiver_api_token:
             raise ValueError("QUIVER_API_TOKEN is not set")

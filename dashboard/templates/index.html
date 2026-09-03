@@ -145,6 +145,27 @@
   }
   .sparkline-cell { width: 90px; }
   .sparkline-cell canvas { width: 84px; height: 28px; }
+
+  .price-source { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; margin-left: 5px; border: 1px solid var(--border); color: var(--text-muted); vertical-align: middle; }
+  .price-source.manual { color: var(--warning); border-color: var(--warning); }
+  .holdings-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .holdings-form input {
+    flex: 1 1 130px; min-width: 100px; padding: 7px 10px; font-size: 13px;
+    border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--text-primary);
+  }
+  .holdings-form button {
+    padding: 7px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--series-1); color: var(--series-1); background: transparent;
+  }
+  .holdings-form button:hover { background: color-mix(in srgb, var(--series-1) 15%, transparent); }
+  .hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .row-btn {
+    font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 5px; cursor: pointer;
+    border: 1px solid var(--border); color: var(--text-secondary); background: transparent; margin-left: 4px;
+  }
+  .row-btn:hover { background: color-mix(in srgb, var(--text-secondary) 12%, transparent); }
+  .row-btn.danger { border-color: var(--critical); color: var(--critical); }
+  .row-btn.danger:hover { background: color-mix(in srgb, var(--critical) 15%, transparent); }
 </style>
 </head>
 <body>
@@ -184,6 +205,40 @@
   <section>
     <h2>Account Equity (3mo)</h2>
     <div class="chart-card"><canvas id="equity-chart"></canvas></div>
+  </section>
+
+  <section>
+    <h2>Real Holdings (manual) vs. Paper Bot</h2>
+    <div class="stat-row" id="real-holdings-stat-row">
+      <div class="stat-tile"><div class="label">Your Real Return</div><div class="value" id="real-return">&mdash;</div></div>
+      <div class="stat-tile"><div class="label">Bot Paper Return (3mo)</div><div class="value" id="bot-return">&mdash;</div></div>
+      <div class="stat-tile"><div class="label">Real Cost Basis</div><div class="value" id="real-cost-basis">&mdash;</div></div>
+      <div class="stat-tile"><div class="label">Real Market Value</div><div class="value" id="real-market-value">&mdash;</div></div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th>Ticker / Fund</th><th>Account</th><th class="num">Shares</th><th class="num">Cost/Share</th>
+          <th class="num">Current Price</th><th class="num">Market Value</th><th class="num">Gain</th><th>Notes</th><th></th>
+        </tr></thead>
+        <tbody id="real-holdings-body"><tr class="empty-row"><td colspan="9">Loading&hellip;</td></tr></tbody>
+      </table>
+    </div>
+    <form class="holdings-form" id="real-holdings-form">
+      <input type="text" id="rh-ticker" placeholder="Ticker / fund (e.g. SPACX, VINIX)" required>
+      <input type="text" id="rh-account" placeholder="Account (e.g. Schwab, 401k)" required>
+      <input type="number" step="any" id="rh-shares" placeholder="Shares" required>
+      <input type="number" step="any" id="rh-cost" placeholder="Cost / share ($)" required>
+      <input type="number" step="any" id="rh-manual-price" placeholder="Manual price (optional)">
+      <input type="text" id="rh-notes" placeholder="Notes (optional)">
+      <button type="submit">Add Holding</button>
+    </form>
+    <div class="hint">
+      "Manual price" is only needed when Alpaca has no live quote for it (mutual funds, private
+      stock like a pre-IPO SPACX lot) &mdash; update it yourself from your statement whenever it
+      changes. Comparison is directional only: your real accounts may include contributions or
+      withdrawals that a simple return % doesn't separate out from actual gains.
+    </div>
   </section>
 
   <section>
@@ -411,6 +466,116 @@ async function sellPosition(ticker, btn) {
   }
 }
 
+async function addRealHolding(event) {
+  event.preventDefault();
+  const body = {
+    ticker: document.getElementById('rh-ticker').value,
+    account: document.getElementById('rh-account').value,
+    shares: document.getElementById('rh-shares').value,
+    cost_per_share: document.getElementById('rh-cost').value,
+    manual_price: document.getElementById('rh-manual-price').value || null,
+    notes: document.getElementById('rh-notes').value,
+  };
+  try {
+    const res = await fetch('/api/real-holdings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    if (result.success) {
+      document.getElementById('real-holdings-form').reset();
+      refresh();
+    } else {
+      alert(`Could not add holding: ${result.error}`);
+    }
+  } catch (e) {
+    alert(`Could not add holding: ${e}`);
+  }
+}
+
+async function updateRealHolding(id, current) {
+  const shares = prompt('Shares:', current.shares);
+  if (shares === null) return;
+  const cost = prompt('Cost / share ($):', current.cost_per_share);
+  if (cost === null) return;
+  const manualPrice = prompt('Manual price (blank to clear, only used if Alpaca has no live quote):', current.manual_price ?? '');
+  if (manualPrice === null) return;
+  try {
+    const res = await fetch(`/api/real-holdings/${id}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        shares: parseFloat(shares),
+        cost_per_share: parseFloat(cost),
+        manual_price: manualPrice.trim() === '' ? null : parseFloat(manualPrice),
+      }),
+    });
+    const result = await res.json();
+    if (result.success) {
+      refresh();
+    } else {
+      alert(`Could not update holding: ${result.error}`);
+    }
+  } catch (e) {
+    alert(`Could not update holding: ${e}`);
+  }
+}
+
+async function deleteRealHolding(id, ticker) {
+  if (!confirm(`Remove ${ticker} from your real holdings tracker? This only removes the tracked entry, not any real investment.`)) return;
+  try {
+    const res = await fetch(`/api/real-holdings/${id}`, { method: 'DELETE' });
+    const result = await res.json();
+    if (result.success) {
+      refresh();
+    } else {
+      alert(`Could not remove holding: ${result.error}`);
+    }
+  } catch (e) {
+    alert(`Could not remove holding: ${e}`);
+  }
+}
+
+document.getElementById('real-holdings-form').addEventListener('submit', addRealHolding);
+
+function renderRealHoldings(realHoldings) {
+  const rh = realHoldings || {};
+  const totals = rh.totals || {};
+  document.getElementById('real-cost-basis').textContent = fmtMoney(totals.cost_basis);
+  document.getElementById('real-market-value').textContent = fmtMoney(totals.market_value);
+
+  const realReturnEl = document.getElementById('real-return');
+  const realReturnPct = totals.return_pct;
+  realReturnEl.textContent = realReturnPct != null ? realReturnPct.toFixed(1) + '%' : 'n/a';
+  realReturnEl.className = 'value ' + (realReturnPct > 0 ? 'good' : realReturnPct < 0 ? 'critical' : '');
+
+  const botReturnEl = document.getElementById('bot-return');
+  const botReturnPct = rh.bot_return_pct;
+  botReturnEl.textContent = botReturnPct != null ? botReturnPct.toFixed(1) + '%' : 'n/a';
+  botReturnEl.className = 'value ' + (botReturnPct > 0 ? 'good' : botReturnPct < 0 ? 'critical' : '');
+
+  renderRows('real-holdings-body', rh.holdings, 9, (h) => {
+    const priceBadge = h.price_source
+      ? `<span class="price-source ${h.price_source}">${h.price_source}</span>` : '';
+    return `
+    <tr>
+      <td>${escapeHtml(h.ticker)}</td>
+      <td>${escapeHtml(h.account)}</td>
+      <td class="num">${h.shares}</td>
+      <td class="num">${fmtMoney(h.cost_per_share)}</td>
+      <td class="num">${h.current_price != null ? fmtMoney(h.current_price) : '—'}${priceBadge}</td>
+      <td class="num">${h.market_value != null ? fmtMoney(h.market_value) : '—'}</td>
+      <td class="num ${h.gain_pct > 0 ? 'good' : h.gain_pct < 0 ? 'critical' : ''}">${h.gain_pct != null ? h.gain_pct.toFixed(1) + '%' : '—'}</td>
+      <td>${escapeHtml(h.notes)}</td>
+      <td>
+        <button type="button" class="row-btn" onclick='updateRealHolding("${h.id}", ${JSON.stringify({shares: h.shares, cost_per_share: h.cost_per_share, manual_price: h.manual_price})})'>Edit</button>
+        <button type="button" class="row-btn danger" onclick="deleteRealHolding('${h.id}', '${escapeHtml(h.ticker)}')">Remove</button>
+      </td>
+    </tr>`;
+  });
+}
+
 async function refresh() {
   let data;
   try {
@@ -467,6 +632,7 @@ async function refresh() {
     </tr>`);
   renderSparklines(data.price_history, data.positions);
   renderEquityChart(data.equity_curve);
+  renderRealHoldings(data.real_holdings);
 
   renderRows('orders-body', data.orders, 7, (o) => `
     <tr>
