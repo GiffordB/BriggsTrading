@@ -218,9 +218,11 @@
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Member</th><th>Ticker</th><th>Type</th><th>Amount</th><th>Filed</th>
+          <th>Member</th><th>Ticker</th>
+          <th class="num" title="Congress never discloses the actual execution price -- this is the stock's closing price on or before the disclosed transaction date, as a reference only.">Price (approx.)</th>
+          <th>Type</th><th>Amount</th><th>Filed</th>
         </tr></thead>
-        <tbody id="disclosures-body"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
+        <tbody id="disclosures-body"><tr class="empty-row"><td colspan="6">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -230,9 +232,11 @@
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Decision</th><th>Member</th><th>Ticker</th><th>Reason</th><th>Logged</th>
+          <th>Decision</th><th>Member</th><th>Ticker</th>
+          <th class="num" title="Congress never discloses the actual execution price -- this is the stock's closing price on or before the disclosed transaction date, as a reference only.">Price (approx.)</th>
+          <th>Reason</th><th>Logged</th>
         </tr></thead>
-        <tbody id="decisions-body"><tr class="empty-row"><td colspan="5">Loading&hellip;</td></tr></tbody>
+        <tbody id="decisions-body"><tr class="empty-row"><td colspan="6">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -475,20 +479,22 @@ async function refresh() {
       <td>${fmtDate(o.submitted_at)}</td>
     </tr>`);
 
-  renderRows('disclosures-body', data.disclosures, 5, (d) => `
+  renderRows('disclosures-body', data.disclosures, 6, (d) => `
     <tr>
       <td>${escapeHtml(d.representative)}</td>
       <td>${tickerLink(d.ticker)}</td>
+      <td class="num">${d.transaction_price != null ? fmtMoney(d.transaction_price) : '—'}</td>
       <td>${escapeHtml(d.transaction_type)}</td>
       <td>${escapeHtml(d.raw_range)}</td>
       <td>${fmtDate(d.filed_date)}</td>
     </tr>`);
 
-  renderRows('decisions-body', data.decisions, 5, (dec) => `
+  renderRows('decisions-body', data.decisions, 6, (dec) => `
     <tr>
       <td><span class="decision-badge ${escapeHtml(dec.decision)}">${escapeHtml(dec.decision).toUpperCase()}</span></td>
       <td>${escapeHtml(dec.representative)}</td>
       <td>${tickerLink(dec.ticker)}</td>
+      <td class="num">${dec.transaction_price != null ? fmtMoney(dec.transaction_price) : '—'}</td>
       <td>${escapeHtml(dec.reason)}</td>
       <td>${fmtDate(dec.logged_at)}</td>
     </tr>`);

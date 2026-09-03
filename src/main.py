@@ -98,6 +98,7 @@ def run() -> None:
                 representative=d.representative,
                 ticker=d.ticker,
                 transaction_type=d.transaction_type,
+                transaction_date=d.transaction_date,
                 raw_range=d.raw_range,
                 filed_date=d.filed_date,
                 decision=final_action,

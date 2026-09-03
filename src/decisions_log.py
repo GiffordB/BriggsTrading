@@ -17,6 +17,7 @@ def log_decision(
     filed_date: str,
     decision: str,
     reason: str,
+    transaction_date: str = "",
 ) -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -24,6 +25,7 @@ def log_decision(
         "representative": representative,
         "ticker": ticker,
         "transaction_type": transaction_type,
+        "transaction_date": transaction_date,
         "raw_range": raw_range,
         "filed_date": filed_date,
         "decision": decision,

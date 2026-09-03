@@ -45,6 +45,13 @@ _NEWS_TTL_SECONDS = 300
 _price_history_cache: dict = {"data": {}, "fetched_at": 0.0}
 _PRICE_HISTORY_TTL_SECONDS = 900  # daily bars don't change intraday; cache generously
 
+_disclosure_price_cache: dict = {"data": {}, "fetched_at": 0.0}
+_DISCLOSURE_PRICE_TTL_SECONDS = 900
+# Covers a disclosure's LOOKBACK_DAYS window plus the full 45-day legal filing
+# delay, with a buffer -- transaction_date can be up to ~45 days before the
+# disclosure was even fetched.
+_DISCLOSURE_PRICE_LOOKBACK_DAYS = 120
+
 
 @app.before_request
 def require_auth():
@@ -101,6 +108,41 @@ def _recent_decisions(limit: int = 30) -> list[dict]:
             _decisions_cache["data"] = []
         _decisions_cache["fetched_at"] = now
     return _decisions_cache["data"]
+
+
+def _price_on_or_before(series: list[dict], target_date: str) -> float | None:
+    candidates = [p["close"] for p in series if p["date"] <= target_date]
+    return candidates[-1] if candidates else None
+
+
+def _attach_transaction_prices(rows: list[dict]) -> None:
+    """Adds an approximate 'transaction_price' to each row -- Congress never
+    discloses the actual execution price (only a dollar range), so this is the
+    stock's closing price on-or-before the disclosed transaction date, not a
+    real fill price. Mutates rows in place; missing transaction_date (older
+    audit log entries logged before this field existed) just get None."""
+    tickers = sorted({r["ticker"] for r in rows if r.get("transaction_date")})
+    now = time.time()
+    if (
+        tickers != _disclosure_price_cache.get("tickers")
+        or now - _disclosure_price_cache["fetched_at"] > _DISCLOSURE_PRICE_TTL_SECONDS
+    ):
+        try:
+            _disclosure_price_cache["data"] = broker.get_price_history(
+                tickers, lookback_days=_DISCLOSURE_PRICE_LOOKBACK_DAYS
+            )
+        except Exception:
+            logger.exception("Could not fetch historical prices for disclosures/audit log")
+            _disclosure_price_cache["data"] = {}
+        _disclosure_price_cache["tickers"] = tickers
+        _disclosure_price_cache["fetched_at"] = now
+
+    price_history = _disclosure_price_cache["data"]
+    for row in rows:
+        # Normalize to YYYY-MM-DD in case the source includes a time component.
+        transaction_date = (row.get("transaction_date") or "")[:10]
+        series = price_history.get(row["ticker"]) if transaction_date else None
+        row["transaction_price"] = _price_on_or_before(series, transaction_date) if series else None
 
 
 def _news_for_positions(positions: list[dict]) -> list[dict]:
@@ -161,6 +203,11 @@ def api_data():
         decisions = _recent_decisions()
     except Exception:
         decisions = []
+
+    try:
+        _attach_transaction_prices(disclosures + decisions)
+    except Exception:
+        logger.exception("Could not attach transaction prices")
 
     try:
         news_alerts = _news_for_positions(positions)
