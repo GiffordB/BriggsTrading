@@ -18,5 +18,15 @@
     "manual_price": 125000.0,
     "notes": "Baseline set 2026-09-03; ongoing monthly contributions at varying buy-in prices, tracked as gain/loss from this starting balance",
     "created_at": "2026-09-03T14:31:03Z"
+  },
+  {
+    "id": "ca2e8e28200e",
+    "ticker": "JLGMX",
+    "shares": 1.0,
+    "cost_per_share": 125000.0,
+    "account": "401k (JPMorgan Large Cap Growth, 50%)",
+    "manual_price": 125000.0,
+    "notes": "Baseline set 2026-09-03; ongoing monthly contributions at varying buy-in prices, tracked as gain/loss from this starting balance",
+    "created_at": "2026-09-03T14:31:05Z"
   }
 ]
