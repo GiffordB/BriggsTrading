@@ -1,12 +1,12 @@
 [
   {
     "id": "d687e153b643",
-    "ticker": "SPACX",
+    "ticker": "SPCX",
     "shares": 59.5908,
     "cost_per_share": 151.03,
-    "account": "Schwab (pre-IPO)",
+    "account": "Schwab",
     "manual_price": 151.03,
-    "notes": "SpaceX, 59.5908 shares @ $151.03; manual_price starts equal to cost/share until an updated valuation is entered",
+    "notes": "59.5908 shares @ $151.03 cost basis; now trades publicly on Nasdaq (IPO June 2026), price auto-refreshes live",
     "created_at": "2026-09-03T14:20:41Z"
   },
   {
