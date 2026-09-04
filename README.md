@@ -108,6 +108,36 @@ just skipped for that ticker rather than blocking the purchase outright
 already confirmed by lobbying/contracts, so it adds at most a handful of
 extra requests per run, not one per disclosure fetched).
 
+## Insider override (on by default, separate from the above)
+
+The confirming signal above only ever *narrows* what gets mirrored. This is
+different: `INSIDER_OVERRIDE_ENABLED=true` (the default) lets a corporate
+insider's own trade **override** what a congressional disclosure would
+otherwise do, when both exist for the same ticker in the same run.
+
+Rationale: a Form 4 filing is due within 2 business days of the trade, vs.
+30-45 days for a congressional disclosure. When both exist for one ticker,
+the insider's action is simply the fresher of the two signals -- so it wins,
+in either direction:
+
+- An insider **sale** can turn what would have been a congressional-driven
+  buy into a sell (or a skip, if there's nothing yet to sell).
+- An insider **purchase** can turn a congressional-driven sell, or even a
+  disclosure that would have been filtered out entirely (e.g. below
+  `MIN_TRADE_AMOUNT`), into a buy.
+
+This is never silent. Every overridden row in the dashboard's Audit Log gets
+a light-red background and an "INSIDER OVERRIDE" badge, with the insider's
+name, role, and filing date in a tooltip. A **Reverse** button on each
+flagged row undoes it with one click -- sells back if the override bought,
+or buys back (after asking for a dollar amount, since the audit log doesn't
+store the original position's size) if the override sold.
+
+Set `INSIDER_OVERRIDE_ENABLED=false` to fall back to using SEC EDGAR only as
+the narrowing confirming-signal gate above, never as its own override.
+`INSIDER_OVERRIDE_LOOKBACK_DAYS` (default 10) controls how recent the
+insider's own filing has to be to count.
+
 ## Audit log
 
 Every disclosure the bot evaluates -- mirrored or not -- is logged with its

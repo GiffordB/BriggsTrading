@@ -48,6 +48,15 @@ class Config:
     require_confirming_signal: bool = _bool("REQUIRE_CONFIRMING_SIGNAL", False)
     confirming_signal_lookback_days: int = int(os.getenv("CONFIRMING_SIGNAL_LOOKBACK_DAYS", "90"))
 
+    # When a corporate insider (officer/director) has filed their own Form 4
+    # open-market buy or sell for the same ticker a Congress disclosure this
+    # run is about to act on, the insider's action wins -- Form 4 files within
+    # 2 business days of the trade vs. 30-45 for Congress, so it's the fresher
+    # signal. Flagged in the audit log/dashboard (not silent) since it can
+    # produce a different outcome than the disclosure alone would have.
+    insider_override_enabled: bool = _bool("INSIDER_OVERRIDE_ENABLED", True)
+    insider_override_lookback_days: int = int(os.getenv("INSIDER_OVERRIDE_LOOKBACK_DAYS", "10"))
+
     # Free alternative to Quiver's paid Insider Trading tier -- see
     # src/sec_edgar_client.py. Only used when REQUIRE_CONFIRMING_SIGNAL is on.
     sec_edgar_user_agent: str = os.getenv(

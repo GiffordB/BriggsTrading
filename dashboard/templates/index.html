@@ -98,6 +98,14 @@
   .decision-badge.buy, .decision-badge.sell { color: var(--good); }
   .decision-badge.skip { color: var(--text-muted); }
 
+  tr.insider-override-row td {
+    background: color-mix(in srgb, var(--critical) 12%, var(--surface-1));
+  }
+  .insider-badge {
+    font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+    background: var(--critical); color: #ffffff; margin-left: 6px; letter-spacing: 0.02em;
+  }
+
   .news-alerts { margin-bottom: 20px; }
   .news-alerts-header {
     display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800;
@@ -289,9 +297,9 @@
         <thead><tr>
           <th>Decision</th><th>Member</th><th>Ticker</th>
           <th class="num" title="Congress never discloses the actual execution price -- this is the stock's closing price on or before the disclosed transaction date, as a reference only.">Price (approx.)</th>
-          <th>Reason</th><th>Logged</th>
+          <th>Reason</th><th>Logged</th><th></th>
         </tr></thead>
-        <tbody id="decisions-body"><tr class="empty-row"><td colspan="6">Loading&hellip;</td></tr></tbody>
+        <tbody id="decisions-body"><tr class="empty-row"><td colspan="7">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -463,6 +471,54 @@ async function sellPosition(ticker, btn) {
     alert(`Could not sell ${ticker}: ${e}`);
     btn.disabled = false;
     btn.textContent = `Sell ${ticker}`;
+  }
+}
+
+async function reverseOverride(ticker, overrideAction, btn) {
+  // overrideAction is what the insider override actually did -- reversing it
+  // means doing the opposite: sell back if it bought, buy back if it sold.
+  if (overrideAction === 'buy') {
+    if (!confirm(`Reverse the insider override on ${ticker}? This sells your entire ${ticker} position right now and cannot be undone.`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Reversing…';
+    try {
+      const res = await fetch('/api/sell', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ticker}),
+      });
+      const result = await res.json();
+      if (result.success) { alert(`Reversed: sold ${ticker}.`); refresh(); }
+      else { alert(`Could not reverse ${ticker}: ${result.error}`); btn.disabled = false; btn.textContent = 'Reverse'; }
+    } catch (e) {
+      alert(`Could not reverse ${ticker}: ${e}`);
+      btn.disabled = false;
+      btn.textContent = 'Reverse';
+    }
+    return;
+  }
+
+  // overrideAction === 'sell': buying back needs a dollar amount, since the
+  // audit log doesn't store the original position's size.
+  const amount = prompt(`Reverse the insider override on ${ticker}? This buys it back right now. Dollar amount to buy:`, '2000');
+  if (amount === null) return;
+  const notional = parseFloat(amount);
+  if (!(notional > 0)) { alert('Enter a positive dollar amount.'); return; }
+  btn.disabled = true;
+  btn.textContent = 'Reversing…';
+  try {
+    const res = await fetch('/api/buy', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ticker, notional}),
+    });
+    const result = await res.json();
+    if (result.success) { alert(`Reversed: bought ${ticker}.`); refresh(); }
+    else { alert(`Could not reverse ${ticker}: ${result.error}`); btn.disabled = false; btn.textContent = 'Reverse'; }
+  } catch (e) {
+    alert(`Could not reverse ${ticker}: ${e}`);
+    btn.disabled = false;
+    btn.textContent = 'Reverse';
   }
 }
 
@@ -655,15 +711,20 @@ async function refresh() {
       <td>${fmtDate(d.filed_date)}</td>
     </tr>`);
 
-  renderRows('decisions-body', data.decisions, 6, (dec) => `
-    <tr>
-      <td><span class="decision-badge ${escapeHtml(dec.decision)}">${escapeHtml(dec.decision).toUpperCase()}</span></td>
+  renderRows('decisions-body', data.decisions, 7, (dec) => {
+    const flagged = !!dec.insider_override;
+    const canReverse = flagged && (dec.decision === 'buy' || dec.decision === 'sell');
+    return `
+    <tr class="${flagged ? 'insider-override-row' : ''}" ${flagged ? `title="${escapeHtml(dec.insider_detail)}"` : ''}>
+      <td><span class="decision-badge ${escapeHtml(dec.decision)}">${escapeHtml(dec.decision).toUpperCase()}</span>${flagged ? '<span class="insider-badge">INSIDER OVERRIDE</span>' : ''}</td>
       <td>${escapeHtml(dec.representative)}</td>
       <td>${tickerLink(dec.ticker)}</td>
       <td class="num">${dec.transaction_price != null ? fmtMoney(dec.transaction_price) : '—'}</td>
       <td>${escapeHtml(dec.reason)}</td>
       <td>${fmtDate(dec.logged_at)}</td>
-    </tr>`);
+      <td>${canReverse ? `<button type="button" class="row-btn danger" onclick="reverseOverride('${escapeHtml(dec.ticker)}', '${escapeHtml(dec.decision)}', this)">Reverse</button>` : ''}</td>
+    </tr>`;
+  });
 
   renderRows('news-feed-body', data.news_alerts, 4, (a) => `
     <tr>

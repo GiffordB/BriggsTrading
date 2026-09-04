@@ -44,6 +44,8 @@ jobs:
           MIRROR_TRANSACTION_TYPES: ${{ vars.MIRROR_TRANSACTION_TYPES || 'Purchase' }}
           MIN_TRADE_AMOUNT: ${{ vars.MIN_TRADE_AMOUNT || '15000' }}
           SEC_EDGAR_USER_AGENT: ${{ vars.SEC_EDGAR_USER_AGENT || 'BriggsTrading github.com/GiffordB/BriggsTrading' }}
+          INSIDER_OVERRIDE_ENABLED: ${{ vars.INSIDER_OVERRIDE_ENABLED || 'true' }}
+          INSIDER_OVERRIDE_LOOKBACK_DAYS: ${{ vars.INSIDER_OVERRIDE_LOOKBACK_DAYS || '10' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4

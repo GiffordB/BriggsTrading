@@ -18,6 +18,8 @@ def log_decision(
     decision: str,
     reason: str,
     transaction_date: str = "",
+    insider_override: bool = False,
+    insider_detail: str = "",
 ) -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     entry = {
@@ -30,6 +32,8 @@ def log_decision(
         "filed_date": filed_date,
         "decision": decision,
         "reason": reason,
+        "insider_override": insider_override,
+        "insider_detail": insider_detail,
     }
     with open(LOG_PATH, "a") as f:
         f.write(json.dumps(entry) + "\n")

@@ -33,6 +33,12 @@ _ATOM_NS = {"a": "http://www.w3.org/2005/Atom"}
 # don't reflect an insider choosing to buy more stock.
 _PURCHASE_CODE = "P"
 
+# The sale-side equivalent -- a genuine discretionary open-market sale.
+# Together with _PURCHASE_CODE, this is the "directional" pair used by
+# most_recent_directional_transaction() for the insider-override check.
+_SALE_CODE = "S"
+_DIRECTIONAL_CODES = {_PURCHASE_CODE, _SALE_CODE}
+
 
 def _parse_bool_flag(value: str | None) -> bool:
     """Handles both '1'/'0' and 'true'/'false' -- different filers' Form 4
@@ -77,6 +83,36 @@ class SECEdgarClient:
                 return True
             time.sleep(0.15)  # be polite to SEC's servers between requests
         return False
+
+    def most_recent_directional_transaction(
+        self, ticker: str, lookback_days: int
+    ) -> InsiderTransaction | None:
+        """The single most recent genuine open-market insider buy (P) or sale
+        (S) for this ticker within the lookback window, or None if there isn't
+        one. Used for the insider-override check: an insider's own trade files
+        within 2 business days, so when one exists for a ticker Congress has
+        also just traded, it's the fresher of the two signals. Never raises --
+        any network/parsing failure just means "no override candidate", not a
+        crash of the whole bot run."""
+        try:
+            filings = self._recent_form4_filings(ticker, lookback_days)
+        except Exception:
+            logger.warning("Could not fetch SEC EDGAR Form 4 filings for %s", ticker, exc_info=True)
+            return None
+
+        most_recent: InsiderTransaction | None = None
+        for filing in filings:
+            try:
+                transactions = self._fetch_transactions(filing["directory_url"])
+            except Exception:
+                continue
+            for txn in transactions:
+                if txn.transaction_code not in _DIRECTIONAL_CODES or not txn.transaction_date:
+                    continue
+                if most_recent is None or txn.transaction_date > most_recent.transaction_date:
+                    most_recent = txn
+            time.sleep(0.15)  # be polite to SEC's servers between requests
+        return most_recent
 
     def _recent_form4_filings(self, ticker: str, lookback_days: int) -> list[dict]:
         # EDGAR's "getcompany" CIK parameter accepts a ticker symbol directly.

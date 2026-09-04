@@ -4,6 +4,7 @@ import logging
 import time
 
 import requests
+from alpaca.trading.enums import OrderSide
 from flask import Flask, Response, jsonify, render_template, request
 
 from src.alpaca_client import AlpacaClient
@@ -375,6 +376,38 @@ def api_sell():
         return jsonify({"success": False, "error": str(exc)}), 502
 
     logger.warning("Manual sell triggered from dashboard for %s", ticker)
+    return jsonify({"success": True, "ticker": ticker})
+
+
+@app.route("/api/buy", methods=["POST"])
+def api_buy():
+    """Manual buy -- primarily for reversing an insider-override sell (see the
+    'Reverse' button on flagged Audit Log rows), but usable for any ticker."""
+    data = request.get_json(force=True, silent=True) or {}
+    ticker = (data.get("ticker") or "").strip().upper()
+    if not ticker:
+        return jsonify({"success": False, "error": "ticker is required"}), 400
+
+    try:
+        notional = float(data.get("notional"))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "notional must be a number"}), 400
+    if notional <= 0:
+        return jsonify({"success": False, "error": "notional must be positive"}), 400
+
+    try:
+        if not broker.is_tradable(ticker):
+            return jsonify({"success": False, "error": f"{ticker} is not tradable on Alpaca"}), 400
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Could not verify tradability: {exc}"}), 502
+
+    try:
+        broker.submit_market_order(ticker, notional, OrderSide.BUY)
+    except Exception as exc:
+        logger.exception("Manual buy failed for %s", ticker)
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+    logger.warning("Manual buy triggered from dashboard for %s (~$%.2f)", ticker, notional)
     return jsonify({"success": True, "ticker": ticker})
 
 
