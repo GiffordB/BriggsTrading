@@ -89,8 +89,10 @@ def evaluate_disclosures(
     `confirming_tickers` -- so it adds at most a handful of live lookups per
     run, not one per disclosure fetched.
 
-    Only makes read-only broker calls (tradability, existing positions, equity), so
-    this is always safe to call, including in DRY_RUN mode.
+    Only makes read-only broker calls (tradability, equity), so this is always
+    safe to call, including in DRY_RUN mode. Does not check existing positions
+    for sell decisions -- see the note in the sell branch below for why that
+    check is deferred to main.py's execution loop instead.
     """
     equity = broker.get_equity()
     buying_power = broker.get_buying_power()
@@ -111,11 +113,13 @@ def evaluate_disclosures(
 
         transaction_type_lower = disclosure.transaction_type.lower()
         if transaction_type_lower in _SELL_TRANSACTION_TYPES:
-            if not broker.has_open_position(disclosure.ticker):
-                decisions.append(
-                    Decision(disclosure, "skip", "no open position to sell")
-                )
-                continue
+            # Not checking has_open_position here: within a single run, an earlier
+            # disclosure's buy for this same ticker (from a different member) may
+            # not have executed yet at evaluation time, which would make this check
+            # wrongly and *permanently* skip a legitimate sell (a non-retryable
+            # skip marks the disclosure seen forever). main.py re-checks live
+            # position state immediately before execution instead, the same way
+            # it already does for the buy-side concentration limit.
             decisions.append(Decision(disclosure, "sell", "mirroring disclosed sale"))
             continue
 

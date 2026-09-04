@@ -75,6 +75,13 @@ def run() -> None:
             new_disclosures, config, broker, confirming_tickers, sec_edgar
         )
 
+        # Execute buys before sells: if two different members' disclosures for the
+        # same ticker land in one run (one buying, one selling), this ensures a
+        # position created by this run's own buy is visible to this run's sell
+        # check below, rather than the sell always finding nothing to sell just
+        # because it happened to be evaluated first.
+        decisions = sorted(decisions, key=lambda dec: dec.action != "buy")
+
         for decision in decisions:
             d = decision.disclosure
             final_action = decision.action
@@ -92,6 +99,15 @@ def run() -> None:
             ):
                 final_action = "skip"
                 final_reason = "would exceed MAX_POSITION_CONCENTRATION_PCT"
+                skip_retryable = True
+            elif decision.action == "sell" and not broker.has_open_position(d.ticker):
+                # Live check, not the evaluate_disclosures-time snapshot -- see
+                # strategy.py's sell branch for why. Retryable: a position from an
+                # unrelated later buy could still make this same disclosure
+                # sellable in a future run, right up until it ages out of
+                # LOOKBACK_DAYS and stops being fetched at all.
+                final_action = "skip"
+                final_reason = "no open position to sell"
                 skip_retryable = True
 
             decisions_log.log_decision(
