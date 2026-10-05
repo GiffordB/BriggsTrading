@@ -1,17 +1,24 @@
 """Free, public SEC EDGAR data -- no API key or subscription needed.
 
-Used as a free alternative to Quiver's paid Insider Trading tier: checks
-whether a company's own executives/directors have recently filed a Form 4
-reporting an open-market purchase of their own stock. Insiders must file
-within 2 business days of the trade (vs. 30-45 days for Congress), so this
-is a much timelier signal when it fires.
+This is now the bot's primary trade signal: it scans SEC EDGAR's daily
+filing index for every Form 4 filed market-wide (any company, not a
+pre-selected watchlist), and surfaces each genuine open-market insider buy
+or sell as a mirror-able filing. A Form 4 is due within 2 business days of
+the trade, far faster than the 30-45 day lag a congressional disclosure has.
 
 SEC asks that automated requests set a descriptive User-Agent identifying
-the requester (https://www.sec.gov/os/webmaster-faq#developers). Set
-SEC_EDGAR_USER_AGENT to something identifying this project and a real
-contact if you have one, to stay in good standing with their fair-access
-policy. This client also pauses briefly between requests to avoid hammering
-their servers.
+the requester (https://www.sec.gov/os/webmaster-faq#developers) -- a bare
+UA with no contact info gets blocked outright ("Undeclared Automated Tool").
+Set SEC_EDGAR_USER_AGENT to something identifying this project and a real
+contact if you have one. This client also pauses briefly between requests
+to stay well under SEC's published 10 req/sec fair-access limit.
+
+Scale note: a single weekday's Form 4 filings number in the low thousands
+market-wide, most of which are option exercises, grants, or tax withholding
+rather than genuine buys/sells -- there's no way to know which, without
+fetching and parsing each one's XML. A full day's scan is a few thousand
+HTTP requests and can take several minutes; see MAX_INSIDER_FILINGS_PER_RUN
+in config.py for the safety cap.
 """
 
 import logging
@@ -25,19 +32,19 @@ import requests
 logger = logging.getLogger(__name__)
 
 SEC_BASE_URL = "https://www.sec.gov"
-_ATOM_NS = {"a": "http://www.w3.org/2005/Atom"}
 
-# The only transaction code that represents a genuine discretionary
-# open-market purchase. Excludes grants/awards (A), option exercises (M),
+# The two transaction codes that represent a genuine discretionary
+# open-market trade. Excludes grants/awards (A), option exercises (M),
 # gifts (G), tax withholding (F), and other non-discretionary types that
-# don't reflect an insider choosing to buy more stock.
+# don't reflect an insider choosing to trade in the open market.
 _PURCHASE_CODE = "P"
-
-# The sale-side equivalent -- a genuine discretionary open-market sale.
-# Together with _PURCHASE_CODE, this is the "directional" pair used by
-# most_recent_directional_transaction() for the insider-override check.
 _SALE_CODE = "S"
 _DIRECTIONAL_CODES = {_PURCHASE_CODE, _SALE_CODE}
+
+# Only the base form, not amendments -- a "4/A" corrects a recently filed
+# "4" (e.g. a typo'd share count), so counting both would double up on what
+# is, from a mirroring standpoint, the same underlying trade.
+_FORM_4_TYPE = "4"
 
 
 def _parse_bool_flag(value: str | None) -> bool:
@@ -47,110 +54,127 @@ def _parse_bool_flag(value: str | None) -> bool:
 
 
 @dataclass(frozen=True)
-class InsiderTransaction:
+class InsiderFiling:
+    """One genuine open-market insider transaction, surfaced from a Form 4.
+    This is the bot's equivalent of what a congressional "disclosure" used
+    to be -- the unit evaluate_insider_filings() in strategy.py decides on."""
+
+    accession: str
     ticker: str
     insider_name: str
     is_officer: bool
     is_director: bool
-    transaction_code: str
+    transaction_code: str  # 'P' or 'S'
     transaction_date: str
+    filed_date: str
     shares: float
     price_per_share: float
 
+    @property
+    def transaction_type(self) -> str:
+        return "Purchase" if self.transaction_code == _PURCHASE_CODE else "Sale"
+
+    @property
+    def notional(self) -> float:
+        return self.shares * self.price_per_share
+
+    @property
+    def dedupe_key(self) -> str:
+        # Unique per actual transaction, not just per filing: a single Form 4
+        # can report several transactions (e.g. a sale plus a tax-withholding
+        # line), and this is what feeds has_seen()/mark_seen() in main.py.
+        return f"{self.accession}|{self.transaction_code}|{self.transaction_date}|{self.shares}"
+
 
 class SECEdgarClient:
-    def __init__(self, user_agent: str):
+    def __init__(self, user_agent: str, request_delay: float = 0.15):
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": user_agent})
+        self._request_delay = request_delay
 
-    def has_recent_insider_purchase(self, ticker: str, lookback_days: int) -> bool:
-        """True if any insider filed a Form 4 open-market purchase (code 'P')
-        for this ticker within the lookback window. Never raises -- any
-        network/parsing failure just means "no confirmation found", not a
-        crash of the whole bot run."""
-        try:
-            filings = self._recent_form4_filings(ticker, lookback_days)
-        except Exception:
-            logger.warning("Could not fetch SEC EDGAR Form 4 filings for %s", ticker, exc_info=True)
-            return False
+    def scan_recent_form4_filings(
+        self, lookback_days: int, max_filings: int | None = None
+    ) -> list[InsiderFiling]:
+        """Scans the last `lookback_days` calendar days of SEC's daily filing
+        index for every Form 4, market-wide, and returns the genuine
+        open-market buy/sell transactions found in them. Never raises --
+        a day's index failing to fetch (weekend, holiday, future date, or a
+        transient SEC error) just means that day contributes nothing, not a
+        crash of the whole bot run.
 
-        for filing in filings:
+        `max_filings` caps how many *unique filings* get fetched and parsed
+        (the expensive part -- an index.json + an XML fetch each), as a
+        safety valve against a backlog (e.g. a missed run) turning into an
+        hours-long scan. Filings beyond the cap are simply not seen this
+        run; LOOKBACK_DAYS naturally covers them on the next one.
+        """
+        accessions: dict[str, dict] = {}
+        for days_ago in range(lookback_days):
+            day = date.today() - timedelta(days=days_ago)
             try:
-                transactions = self._fetch_transactions(filing["directory_url"])
+                for entry in self._form4_index_entries(day):
+                    # A filing with multiple participants (issuer + one or
+                    # more reporting owners) is listed once per participant
+                    # CIK in the daily index, all under the same accession --
+                    # keep only the first one seen.
+                    accessions.setdefault(entry["accession"], entry)
             except Exception:
-                continue
-            if any(t.transaction_code == _PURCHASE_CODE for t in transactions):
-                return True
-            time.sleep(0.15)  # be polite to SEC's servers between requests
-        return False
+                logger.warning("Could not fetch SEC daily index for %s", day.isoformat(), exc_info=True)
 
-    def most_recent_directional_transaction(
-        self, ticker: str, lookback_days: int
-    ) -> InsiderTransaction | None:
-        """The single most recent genuine open-market insider buy (P) or sale
-        (S) for this ticker within the lookback window, or None if there isn't
-        one. Used for the insider-override check: an insider's own trade files
-        within 2 business days, so when one exists for a ticker Congress has
-        also just traded, it's the fresher of the two signals. Never raises --
-        any network/parsing failure just means "no override candidate", not a
-        crash of the whole bot run."""
-        try:
-            filings = self._recent_form4_filings(ticker, lookback_days)
-        except Exception:
-            logger.warning("Could not fetch SEC EDGAR Form 4 filings for %s", ticker, exc_info=True)
-            return None
+        candidates = list(accessions.values())
+        if max_filings is not None and len(candidates) > max_filings:
+            logger.warning(
+                "%d candidate Form 4 filings found, capping to MAX_INSIDER_FILINGS_PER_RUN=%d",
+                len(candidates), max_filings,
+            )
+            candidates = candidates[:max_filings]
 
-        most_recent: InsiderTransaction | None = None
-        for filing in filings:
+        filings: list[InsiderFiling] = []
+        for candidate in candidates:
             try:
-                transactions = self._fetch_transactions(filing["directory_url"])
+                filings.extend(self._fetch_directional_transactions(candidate))
             except Exception:
-                continue
-            for txn in transactions:
-                if txn.transaction_code not in _DIRECTIONAL_CODES or not txn.transaction_date:
-                    continue
-                if most_recent is None or txn.transaction_date > most_recent.transaction_date:
-                    most_recent = txn
-            time.sleep(0.15)  # be polite to SEC's servers between requests
-        return most_recent
-
-    def _recent_form4_filings(self, ticker: str, lookback_days: int) -> list[dict]:
-        # EDGAR's "getcompany" CIK parameter accepts a ticker symbol directly.
-        resp = self._session.get(
-            f"{SEC_BASE_URL}/cgi-bin/browse-edgar",
-            params={
-                "action": "getcompany",
-                "CIK": ticker,
-                "type": "4",
-                "owner": "include",
-                "count": 40,
-                "output": "atom",
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        root = ET.fromstring(resp.content)
-        cutoff = date.today() - timedelta(days=lookback_days)
-
-        filings = []
-        for entry in root.findall("a:entry", _ATOM_NS):
-            content = entry.find("a:content", _ATOM_NS)
-            if content is None:
-                continue
-            filing_date_str = content.findtext("a:filing-date", default="", namespaces=_ATOM_NS)
-            href = content.findtext("a:filing-href", default="", namespaces=_ATOM_NS)
-            if not filing_date_str or not href:
-                continue
-            try:
-                filing_date = datetime.strptime(filing_date_str, "%Y-%m-%d").date()
-            except ValueError:
-                continue
-            if filing_date < cutoff:
-                continue
-            filings.append({"directory_url": href.rsplit("/", 1)[0]})
+                logger.debug("Could not fetch/parse filing %s", candidate["accession"], exc_info=True)
+            time.sleep(self._request_delay)  # be polite to SEC's servers between requests
         return filings
 
-    def _fetch_transactions(self, directory_url: str) -> list[InsiderTransaction]:
+    def _form4_index_entries(self, day: date) -> list[dict]:
+        """One day's worth of Form 4 index rows: {accession, cik, filed_date}.
+        Raises on a genuine fetch error; a missing day's file (weekend,
+        holiday, or a future date) is treated as "no filings that day", not
+        an error -- SEC serves that as 403, not 404, for this path."""
+        quarter = (day.month - 1) // 3 + 1
+        url = f"{SEC_BASE_URL}/Archives/edgar/daily-index/{day.year}/QTR{quarter}/form.{day:%Y%m%d}.idx"
+        resp = self._session.get(url, timeout=30)
+        if resp.status_code in (403, 404):
+            return []
+        resp.raise_for_status()
+
+        entries = []
+        for line in resp.text.splitlines():
+            parts = line.split()
+            if not parts or parts[0] != _FORM_4_TYPE:
+                continue
+            # Columns are fixed-width (Form Type, Company Name, CIK, Date
+            # Filed, File Name), but the company name's spaces make a plain
+            # split() ambiguous -- the last three tokens are reliably CIK,
+            # Date Filed, and File Name (none of which contain spaces).
+            if len(parts) < 4:
+                continue
+            file_name = parts[-1]
+            cik = parts[-3]
+            filed_date = parts[-2]
+            # File Name looks like "edgar/data/{cik}/{accession-with-dashes}.txt"
+            accession = file_name.rsplit("/", 1)[-1].removesuffix(".txt")
+            if not accession or not cik.isdigit():
+                continue
+            entries.append({"accession": accession, "cik": cik, "filed_date": filed_date})
+        return entries
+
+    def _fetch_directional_transactions(self, candidate: dict) -> list[InsiderFiling]:
+        accession_nodash = candidate["accession"].replace("-", "")
+        directory_url = f"{SEC_BASE_URL}/Archives/edgar/data/{candidate['cik']}/{accession_nodash}"
+
         resp = self._session.get(f"{directory_url}/index.json", timeout=30)
         resp.raise_for_status()
         items = resp.json()["directory"]["item"]
@@ -163,9 +187,16 @@ class SECEdgarClient:
 
         xml_resp = self._session.get(f"{directory_url}/{xml_name}", timeout=30)
         xml_resp.raise_for_status()
-        return self._parse_form4_xml(xml_resp.content)
 
-    def _parse_form4_xml(self, xml_bytes: bytes) -> list[InsiderTransaction]:
+        filed_date = candidate["filed_date"]
+        if len(filed_date) == 8:  # "YYYYMMDD" from the daily index -> "YYYY-MM-DD"
+            filed_date = f"{filed_date[:4]}-{filed_date[4:6]}-{filed_date[6:]}"
+
+        return self._parse_form4_xml(xml_resp.content, candidate["accession"], filed_date)
+
+    def _parse_form4_xml(
+        self, xml_bytes: bytes, accession: str, filed_date: str
+    ) -> list[InsiderFiling]:
         root = ET.fromstring(xml_bytes)
         issuer = root.find("issuer")
         if issuer is None:
@@ -188,22 +219,29 @@ class SECEdgarClient:
         if table is None:
             return []
 
-        transactions = []
+        filings = []
         for txn in table.findall("nonDerivativeTransaction"):
             coding = txn.find("transactionCoding")
             code = (coding.findtext("transactionCode") or "") if coding is not None else ""
-            transactions.append(
-                InsiderTransaction(
+            if code not in _DIRECTIONAL_CODES:
+                continue
+            transaction_date = txn.findtext("transactionDate/value") or ""
+            shares = float(txn.findtext("transactionAmounts/transactionShares/value") or 0)
+            price = float(txn.findtext("transactionAmounts/transactionPricePerShare/value") or 0)
+            if shares <= 0 or price <= 0:
+                continue
+            filings.append(
+                InsiderFiling(
+                    accession=accession,
                     ticker=ticker,
                     insider_name=name,
                     is_officer=is_officer,
                     is_director=is_director,
                     transaction_code=code,
-                    transaction_date=txn.findtext("transactionDate/value") or "",
-                    shares=float(txn.findtext("transactionAmounts/transactionShares/value") or 0),
-                    price_per_share=float(
-                        txn.findtext("transactionAmounts/transactionPricePerShare/value") or 0
-                    ),
+                    transaction_date=transaction_date,
+                    filed_date=filed_date,
+                    shares=shares,
+                    price_per_share=price,
                 )
             )
-        return transactions
+        return filings

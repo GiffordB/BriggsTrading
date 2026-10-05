@@ -20,8 +20,6 @@ def _list(name: str) -> list[str]:
 
 @dataclass(frozen=True)
 class Config:
-    quiver_api_token: str = os.getenv("QUIVER_API_TOKEN", "")
-
     alpaca_api_key: str = os.getenv("ALPACA_API_KEY", "")
     alpaca_secret_key: str = os.getenv("ALPACA_SECRET_KEY", "")
     alpaca_paper: bool = _bool("ALPACA_PAPER", True)
@@ -30,12 +28,29 @@ class Config:
     position_size_pct: float = float(os.getenv("POSITION_SIZE_PCT", "0.02"))
     max_notional_per_trade: float = float(os.getenv("MAX_NOTIONAL_PER_TRADE", "2000"))
     max_notional_per_run: float = float(os.getenv("MAX_NOTIONAL_PER_RUN", "5000"))
+    # Exact dollar threshold (shares x price, not a bucketed range -- Form 4
+    # reports both precisely) a single insider transaction must clear to be
+    # worth mirroring at all.
     min_trade_amount: float = float(os.getenv("MIN_TRADE_AMOUNT", "15000"))
     mirror_transaction_types: list[str] = field(
         default_factory=lambda: _list("MIRROR_TRANSACTION_TYPES") or ["Purchase"]
     )
-    followed_members: list[str] = field(default_factory=lambda: _list("FOLLOWED_MEMBERS"))
-    lookback_days: int = int(os.getenv("LOOKBACK_DAYS", "7"))
+    # Optional allowlist of specific insiders (by the name as it appears on
+    # their Form 4, e.g. "Musk Elon") to mirror -- empty means follow every
+    # insider's trade that clears the other filters.
+    followed_insiders: list[str] = field(default_factory=lambda: _list("FOLLOWED_INSIDERS"))
+    # How many days back of SEC's daily filing index to scan each run. Kept
+    # small by default (unlike the old congressional feed, nothing here
+    # tracks "already scanned days" -- every run re-scans the full window,
+    # so a larger value multiplies request volume per run, not just on first
+    # run). 2 days covers a daily schedule with one day of slack for a missed
+    # run; has_seen()/mark_seen() in main.py still dedupes within that window.
+    lookback_days: int = int(os.getenv("LOOKBACK_DAYS", "2"))
+    # Safety cap on how many *unique filings* get fetched and parsed in one
+    # run (the expensive part: an index.json + an XML fetch each, at ~1,000+
+    # candidates per weekday market-wide). Filings beyond the cap are simply
+    # not seen this run, not lost -- LOOKBACK_DAYS covers them on the next one.
+    max_insider_filings_per_run: int = int(os.getenv("MAX_INSIDER_FILINGS_PER_RUN", "2000"))
     dry_run: bool = _bool("DRY_RUN", True)
 
     trading_halted: bool = _bool("TRADING_HALTED", False)
@@ -45,20 +60,10 @@ class Config:
     )
     max_portfolio_exposure_pct: float = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "0.75"))
 
-    require_confirming_signal: bool = _bool("REQUIRE_CONFIRMING_SIGNAL", False)
-    confirming_signal_lookback_days: int = int(os.getenv("CONFIRMING_SIGNAL_LOOKBACK_DAYS", "90"))
-
-    # When a corporate insider (officer/director) has filed their own Form 4
-    # open-market buy or sell for the same ticker a Congress disclosure this
-    # run is about to act on, the insider's action wins -- Form 4 files within
-    # 2 business days of the trade vs. 30-45 for Congress, so it's the fresher
-    # signal. Flagged in the audit log/dashboard (not silent) since it can
-    # produce a different outcome than the disclosure alone would have.
-    insider_override_enabled: bool = _bool("INSIDER_OVERRIDE_ENABLED", True)
-    insider_override_lookback_days: int = int(os.getenv("INSIDER_OVERRIDE_LOOKBACK_DAYS", "10"))
-
-    # Free alternative to Quiver's paid Insider Trading tier -- see
-    # src/sec_edgar_client.py. Only used when REQUIRE_CONFIRMING_SIGNAL is on.
+    # SEC asks automated requests identify themselves -- put a real contact
+    # here if you have one, to stay in good standing with their fair-access
+    # policy (a bare, contact-less UA gets blocked outright). See
+    # src/sec_edgar_client.py.
     sec_edgar_user_agent: str = os.getenv(
         "SEC_EDGAR_USER_AGENT", "BriggsTrading github.com/GiffordB/BriggsTrading"
     )
@@ -78,8 +83,6 @@ class Config:
     github_repo: str = os.getenv("GITHUB_REPO", "GiffordB/BriggsTrading")
 
     def validate(self) -> None:
-        if not self.quiver_api_token:
-            raise ValueError("QUIVER_API_TOKEN is not set")
         if not self.alpaca_api_key or not self.alpaca_secret_key:
             raise ValueError("ALPACA_API_KEY / ALPACA_SECRET_KEY are not set")
         if not self.alpaca_paper and self.confirm_live_trading != "I-UNDERSTAND-THIS-IS-REAL-MONEY":

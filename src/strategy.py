@@ -5,17 +5,14 @@ from alpaca.trading.enums import OrderSide
 
 from .alpaca_client import AlpacaClient
 from .config import Config
-from .quiver_client import Disclosure
-from .sec_edgar_client import SECEdgarClient
+from .sec_edgar_client import InsiderFiling
 
 logger = logging.getLogger(__name__)
-
-_SELL_TRANSACTION_TYPES = {"sale (full)", "sale (partial)", "sale"}
 
 
 @dataclass(frozen=True)
 class Decision:
-    disclosure: Disclosure
+    filing: InsiderFiling
     action: str  # "buy", "sell", or "skip"
     reason: str
     notional: float = 0.0
@@ -29,70 +26,35 @@ class Decision:
         return None
 
 
-def _matches_configured_transaction_type(disclosure_type: str, configured_types: list[str]) -> bool:
-    """Case-insensitive match, with sale variants treated as one category.
-
-    Quiver's live API has been observed to only ever return the bare word
-    'Sale' (never 'Sale (Full)'/'Sale (Partial)' as the official STOCK Act
-    filing terminology would suggest), so a config entry of any sale variant
-    must match a disclosure of any other sale variant -- an exact-string
-    comparison silently dropped every sale disclosure even with sale-mirroring
-    configured on.
-    """
-    disclosure_lower = disclosure_type.strip().lower()
-    configured_lower = {c.strip().lower() for c in configured_types}
-    if disclosure_lower in configured_lower:
-        return True
-    return disclosure_lower in _SELL_TRANSACTION_TYPES and bool(
-        configured_lower & _SELL_TRANSACTION_TYPES
-    )
-
-
-def _filter_reason(disclosure: Disclosure, config: Config) -> str | None:
-    """Returns a skip reason if the disclosure fails the basic filters, else None."""
-    if not _matches_configured_transaction_type(disclosure.transaction_type, config.mirror_transaction_types):
+def _filter_reason(filing: InsiderFiling, config: Config) -> str | None:
+    """Returns a skip reason if the filing fails the basic filters, else None."""
+    configured = {t.strip().lower() for t in config.mirror_transaction_types}
+    if filing.transaction_type.lower() not in configured:
         return (
-            f"transaction type '{disclosure.transaction_type}' not in "
+            f"transaction type '{filing.transaction_type}' not in "
             f"MIRROR_TRANSACTION_TYPES {config.mirror_transaction_types}"
         )
-    if disclosure.amount_low < config.min_trade_amount:
+    if filing.notional < config.min_trade_amount:
         return (
-            f"amount range '{disclosure.raw_range}' below MIN_TRADE_AMOUNT "
+            f"trade value ${filing.notional:,.0f} below MIN_TRADE_AMOUNT "
             f"(${config.min_trade_amount:,.0f})"
         )
-    if config.followed_members and disclosure.representative not in config.followed_members:
-        return f"'{disclosure.representative}' not in FOLLOWED_MEMBERS"
+    if config.followed_insiders and filing.insider_name not in config.followed_insiders:
+        return f"'{filing.insider_name}' not in FOLLOWED_INSIDERS"
     return None
 
 
-def evaluate_disclosures(
-    disclosures: list[Disclosure],
-    config: Config,
-    broker: AlpacaClient,
-    confirming_tickers: set[str] | None = None,
-    sec_edgar: SECEdgarClient | None = None,
+def evaluate_insider_filings(
+    filings: list[InsiderFiling], config: Config, broker: AlpacaClient
 ) -> list[Decision]:
-    """Evaluates every disclosure and returns a Decision for each one -- including
-    skips, with a human-readable reason -- so the full set can be logged for audit,
-    not just the ones that end up as orders.
+    """Evaluates every insider filing and returns a Decision for each one --
+    including skips, with a human-readable reason -- so the full set can be
+    logged for audit, not just the ones that end up as orders.
 
-    `confirming_tickers`, when REQUIRE_CONFIRMING_SIGNAL is on, is the set of
-    tickers with recent lobbying or government contract activity (fetched once
-    per run by main.py). Passing None means either the feature is off or that
-    data was unavailable this run -- either way, the filter is not applied,
-    rather than blocking every purchase.
-
-    `sec_edgar`, when provided, adds a second, independent way for a ticker to
-    qualify: a free SEC EDGAR lookup for a recent insider open-market purchase
-    (Form 4, transaction code 'P'). Checked per-ticker, only for disclosures
-    that already passed the base filters and weren't already confirmed by
-    `confirming_tickers` -- so it adds at most a handful of live lookups per
-    run, not one per disclosure fetched.
-
-    Only makes read-only broker calls (tradability, equity), so this is always
-    safe to call, including in DRY_RUN mode. Does not check existing positions
-    for sell decisions -- see the note in the sell branch below for why that
-    check is deferred to main.py's execution loop instead.
+    Only makes read-only broker calls (tradability, equity), so this is
+    always safe to call, including in DRY_RUN mode. Does not check existing
+    positions for sell decisions -- see the note in the sell branch below for
+    why that check is deferred to main.py's execution loop instead.
     """
     equity = broker.get_equity()
     buying_power = broker.get_buying_power()
@@ -101,60 +63,36 @@ def evaluate_disclosures(
 
     decisions: list[Decision] = []
 
-    for disclosure in disclosures:
-        filter_reason = _filter_reason(disclosure, config)
+    for filing in filings:
+        filter_reason = _filter_reason(filing, config)
         if filter_reason:
-            decisions.append(Decision(disclosure, "skip", filter_reason))
+            decisions.append(Decision(filing, "skip", filter_reason))
             continue
 
-        if not broker.is_tradable(disclosure.ticker):
-            decisions.append(Decision(disclosure, "skip", "not tradable on Alpaca"))
+        if not broker.is_tradable(filing.ticker):
+            decisions.append(Decision(filing, "skip", "not tradable on Alpaca"))
             continue
 
-        transaction_type_lower = disclosure.transaction_type.lower()
-        if transaction_type_lower in _SELL_TRANSACTION_TYPES:
-            # Not checking has_open_position here: within a single run, an earlier
-            # disclosure's buy for this same ticker (from a different member) may
-            # not have executed yet at evaluation time, which would make this check
-            # wrongly and *permanently* skip a legitimate sell (a non-retryable
-            # skip marks the disclosure seen forever). main.py re-checks live
-            # position state immediately before execution instead, the same way
-            # it already does for the buy-side concentration limit.
-            decisions.append(Decision(disclosure, "sell", "mirroring disclosed sale"))
+        if filing.transaction_type == "Sale":
+            # Not checking has_open_position here: within a single run, an
+            # earlier filing's buy for this same ticker (from a different
+            # insider) may not have executed yet at evaluation time, which
+            # would make this check wrongly and *permanently* skip a
+            # legitimate sell (a non-retryable skip marks the filing seen
+            # forever). main.py re-checks live position state immediately
+            # before execution instead, the same way it already does for the
+            # buy-side concentration limit.
+            decisions.append(Decision(filing, "sell", "mirroring insider sale"))
             continue
-
-        confirmation_source = None
-        if config.require_confirming_signal and confirming_tickers is not None:
-            if disclosure.ticker in confirming_tickers:
-                confirmation_source = "recent lobbying/gov-contract activity"
-            elif sec_edgar is not None and sec_edgar.has_recent_insider_purchase(
-                disclosure.ticker, config.confirming_signal_lookback_days
-            ):
-                confirmation_source = "a recent insider open-market purchase (SEC Form 4)"
-
-            if confirmation_source is None:
-                decisions.append(
-                    Decision(
-                        disclosure,
-                        "skip",
-                        f"no confirming signal (lobbying, gov contract, or insider purchase) "
-                        f"for {disclosure.ticker} in the last "
-                        f"{config.confirming_signal_lookback_days} days",
-                    )
-                )
-                continue
 
         notional = min(per_trade_notional, remaining_run_budget)
         if notional < 1:
             decisions.append(
-                Decision(disclosure, "skip", "MAX_NOTIONAL_PER_RUN budget exhausted")
+                Decision(filing, "skip", "MAX_NOTIONAL_PER_RUN budget exhausted")
             )
             continue
 
-        reason = "mirroring disclosed purchase"
-        if confirmation_source:
-            reason += f" (confirmed by {confirmation_source})"
-        decisions.append(Decision(disclosure, "buy", reason, notional=notional))
+        decisions.append(Decision(filing, "buy", "mirroring insider purchase", notional=notional))
         remaining_run_budget -= notional
 
     return decisions

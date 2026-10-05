@@ -1,11 +1,11 @@
-name: Run congress trading bot
+name: Run insider trading bot
 
-# Congress disclosures are filed on an irregular schedule (up to 45 days after
-# the actual trade), so running once a day on weekday evenings is plenty --
-# there's no benefit to running more often than the source data updates.
+# SEC's daily filing index for a given day is only finalized that evening, so
+# this runs the morning after each weekday (Tue-Sat UTC covers Mon-Fri
+# trading days) rather than right after market close.
 on:
   schedule:
-    - cron: "0 22 * * 1-5" # 22:00 UTC, weekdays (after US market close)
+    - cron: "0 6 * * 2-6" # 06:00 UTC
   workflow_dispatch: {}
 
 permissions:
@@ -29,7 +29,6 @@ jobs:
           name: seen-trades-db
       - name: Run bot
         env:
-          QUIVER_API_TOKEN: ${{ secrets.QUIVER_API_TOKEN }}
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
@@ -39,13 +38,12 @@ jobs:
           MAX_DRAWDOWN_PCT: ${{ vars.MAX_DRAWDOWN_PCT || '0.15' }}
           MAX_POSITION_CONCENTRATION_PCT: ${{ vars.MAX_POSITION_CONCENTRATION_PCT || '0.20' }}
           MAX_PORTFOLIO_EXPOSURE_PCT: ${{ vars.MAX_PORTFOLIO_EXPOSURE_PCT || '0.75' }}
-          REQUIRE_CONFIRMING_SIGNAL: ${{ vars.REQUIRE_CONFIRMING_SIGNAL || 'false' }}
-          CONFIRMING_SIGNAL_LOOKBACK_DAYS: ${{ vars.CONFIRMING_SIGNAL_LOOKBACK_DAYS || '90' }}
           MIRROR_TRANSACTION_TYPES: ${{ vars.MIRROR_TRANSACTION_TYPES || 'Purchase' }}
           MIN_TRADE_AMOUNT: ${{ vars.MIN_TRADE_AMOUNT || '15000' }}
+          LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS || '2' }}
+          MAX_INSIDER_FILINGS_PER_RUN: ${{ vars.MAX_INSIDER_FILINGS_PER_RUN || '2000' }}
+          FOLLOWED_INSIDERS: ${{ vars.FOLLOWED_INSIDERS }}
           SEC_EDGAR_USER_AGENT: ${{ vars.SEC_EDGAR_USER_AGENT || 'BriggsTrading github.com/GiffordB/BriggsTrading' }}
-          INSIDER_OVERRIDE_ENABLED: ${{ vars.INSIDER_OVERRIDE_ENABLED || 'true' }}
-          INSIDER_OVERRIDE_LOOKBACK_DAYS: ${{ vars.INSIDER_OVERRIDE_LOOKBACK_DAYS || '10' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4

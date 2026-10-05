@@ -10,30 +10,32 @@ MAX_LINES = 5000
 
 
 def log_decision(
-    representative: str,
+    insider_name: str,
+    role: str,
     ticker: str,
     transaction_type: str,
-    raw_range: str,
     filed_date: str,
     decision: str,
     reason: str,
     transaction_date: str = "",
-    insider_override: bool = False,
-    insider_detail: str = "",
+    shares: float = 0.0,
+    price_per_share: float = 0.0,
+    notional: float = 0.0,
 ) -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "logged_at": datetime.now(timezone.utc).isoformat(),
-        "representative": representative,
+        "insider_name": insider_name,
+        "role": role,
         "ticker": ticker,
         "transaction_type": transaction_type,
         "transaction_date": transaction_date,
-        "raw_range": raw_range,
         "filed_date": filed_date,
+        "shares": shares,
+        "price_per_share": price_per_share,
+        "notional": notional,
         "decision": decision,
         "reason": reason,
-        "insider_override": insider_override,
-        "insider_detail": insider_detail,
     }
     with open(LOG_PATH, "a") as f:
         f.write(json.dumps(entry) + "\n")

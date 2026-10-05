@@ -8,8 +8,6 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: QUIVER_API_TOKEN
-        sync: false
       - key: ALPACA_API_KEY
         sync: false
       - key: ALPACA_SECRET_KEY
@@ -20,8 +18,6 @@ services:
         value: "true"
       - key: CONFIRM_LIVE_TRADING
         sync: false
-      - key: LOOKBACK_DAYS
-        value: "7"
       - key: TRADING_HALTED
         value: "false"
       - key: MAX_DRAWDOWN_PCT

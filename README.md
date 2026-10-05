@@ -1,32 +1,56 @@
 # BriggsTrading
 
-Mirrors publicly disclosed U.S. Congress stock trades (STOCK Act filings, via
-the [Quiver Quantitative API](https://api.quiverquant.com/pricing/)) into an
-[Alpaca](https://alpaca.markets) account. **Defaults to Alpaca paper trading
-and dry-run mode** -- it will not place a real order until you deliberately
-turn both of those off.
+Mirrors corporate insiders' own stock trades -- officers and directors filing
+SEC Form 4 ("CEOs" in the broad sense of "the people actually running the
+company"), sourced directly from [SEC EDGAR](https://www.sec.gov/edgar) (free,
+no API key, no subscription) -- into an [Alpaca](https://alpaca.markets)
+account. **Defaults to Alpaca paper trading and dry-run mode** -- it will not
+place a real order until you deliberately turn both of those off.
 
 ## Important context
 
-- Congress members must disclose trades within 30-45 days of making them.
-  This bot is not fast money and cannot front-run anything -- by the time a
-  trade is disclosed, the market has usually already reacted to whatever the
-  member knew.
-- This is not financial advice, and following politicians' trades is not a
-  guaranteed strategy. Past disclosed performance of any individual member is
-  not predictive.
+- A Form 4 is due within 2 business days of the trade -- much faster than a
+  congressional disclosure's 30-45 day lag, but still after the fact. This
+  bot is not fast money and cannot front-run anything.
+- This scans **every** Form 4 filed market-wide each run, not a pre-selected
+  watchlist -- see "How it finds trades" below for what that costs in run
+  time and request volume.
+- This is not financial advice, and mirroring insiders' trades is not a
+  guaranteed strategy. Insiders sell for all kinds of reasons unrelated to
+  their view of the stock (diversification, taxes, a planned 10b5-1 schedule)
+  -- a sale is a much weaker signal than a purchase.
 - You are responsible for your own brokerage account, API keys, and any money
   this places at risk if you ever turn on live trading.
 
 ## Setup
 
 1. `pip install -r requirements.txt`
-2. Get a Quiver Quantitative API token (Hobbyist tier, $30/mo, includes
-   Congress Trading data): https://api.quiverquant.com/pricing/
-3. Get Alpaca paper trading API keys (free): https://app.alpaca.markets/
-4. `cp .env.example .env` and fill in `QUIVER_API_TOKEN`, `ALPACA_API_KEY`,
-   `ALPACA_SECRET_KEY`.
-5. Leave `ALPACA_PAPER=true` and `DRY_RUN=true` for your first runs.
+2. Get Alpaca paper trading API keys (free): https://app.alpaca.markets/
+3. `cp .env.example .env` and fill in `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`.
+4. Leave `ALPACA_PAPER=true` and `DRY_RUN=true` for your first runs.
+
+No SEC account or API key is needed -- `SEC_EDGAR_USER_AGENT` in `.env.example`
+is just a descriptive string identifying this project to SEC's servers, per
+their fair-access policy.
+
+## How it finds trades
+
+`src/sec_edgar_client.py` scans SEC's [daily filing
+index](https://www.sec.gov/Archives/edgar/daily-index/) for every Form 4
+filed in the last `LOOKBACK_DAYS` days, market-wide -- any company, not a
+watchlist. For each one it fetches the actual filing XML to find genuine
+open-market buys/sells (transaction codes `P`/`S`; option exercises, stock
+grants, gifts, and tax withholding don't count).
+
+This is a real cost worth knowing about: a single weekday has roughly 1,500
+unique Form 4 filings market-wide, and there's no way to know which ones are
+genuine open-market trades without fetching and parsing each one's XML. That's
+a few thousand HTTP requests per day of lookback, which can take several
+minutes to run and is most of why `LOOKBACK_DAYS` defaults to just 2 --
+unlike a subscription feed, nothing here remembers "already scanned days", so
+every run re-scans its full window from scratch. `MAX_INSIDER_FILINGS_PER_RUN`
+is a safety cap against a multi-day backlog turning into an hours-long scan;
+filings beyond it just aren't seen this run, not lost.
 
 ## Running it
 
@@ -34,10 +58,10 @@ turn both of those off.
 python -m src.main
 ```
 
-With `DRY_RUN=true` this fetches recent disclosures, applies the strategy
-filters, computes what it *would* order, and logs it -- no orders are
-submitted, but disclosures are still marked as "seen" so you don't get a wall
-of duplicate log lines every run.
+With `DRY_RUN=true` this scans recent filings, applies the strategy filters,
+computes what it *would* order, and logs it -- no orders are submitted, but
+filings are still marked as "seen" so you don't get a wall of duplicate log
+lines every run.
 
 Once you're happy with what it's logging, set `DRY_RUN=false` to actually
 submit orders to your **paper** account and watch it for a while before ever
@@ -57,14 +81,20 @@ string set on purpose -- there's no accidental path into live trading.
 | `POSITION_SIZE_PCT` | % of your account equity to allocate per mirrored trade |
 | `MAX_NOTIONAL_PER_TRADE` | Hard dollar cap per order, regardless of `POSITION_SIZE_PCT` |
 | `MAX_NOTIONAL_PER_RUN` | Hard dollar cap on total new orders in one run |
-| `MIN_TRADE_AMOUNT` | Ignore disclosures below this dollar amount (disclosures are ranges; the low end is used) |
-| `MIRROR_TRANSACTION_TYPES` | Which disclosure types to act on (`Purchase`, `Sale (Full)`, etc.) |
-| `FOLLOWED_MEMBERS` | Optional allowlist of specific members to mirror; blank = everyone |
-| `LOOKBACK_DAYS` | How far back to look for new disclosures each run |
+| `MIN_TRADE_AMOUNT` | Ignore insider trades below this exact dollar value (shares x price -- Form 4 reports both precisely) |
+| `MIRROR_TRANSACTION_TYPES` | Which trade types to act on: `Purchase` and/or `Sale` |
+| `FOLLOWED_INSIDERS` | Optional allowlist of specific insiders to mirror (by Form 4 name); blank = everyone |
+| `LOOKBACK_DAYS` | How many days of SEC's daily filing index to scan each run |
+| `MAX_INSIDER_FILINGS_PER_RUN` | Safety cap on filings fetched+parsed per run |
 
-Sell disclosures only ever close a position this bot already opened for you
--- it will never short a stock or sell something you hold for unrelated
-reasons.
+Sell filings only ever close a position this bot already opened for you --
+it will never short a stock or sell something you hold for unrelated reasons.
+Two different insiders trading the same ticker in opposite directions within
+one run (one buying, one selling) resolve correctly regardless of which
+filing happened to be scanned first: buys execute before sells each run, and
+the sell's "do I actually hold this?" check happens live, right before it
+would execute -- not against a stale snapshot from before that run's own
+buys went through.
 
 ## Risk guard (independent of the strategy above)
 
@@ -79,72 +109,20 @@ Before any order is submitted, a separate check in `src/risk_guard.py` runs
 | `MAX_POSITION_CONCENTRATION_PCT` | Blocks a buy that would push any single position above this fraction of account equity |
 | `MAX_PORTFOLIO_EXPOSURE_PCT` | Blocks new buys once total position value reaches this fraction of account equity |
 
-When halted, the bot still evaluates and logs every disclosure (so you can
-see what it *would* have done), it just skips submitting orders -- and
-doesn't mark those disclosures as "seen", so they're retried automatically
-once the halt clears.
-
-## Confirming signal (optional, off by default)
-
-Setting `REQUIRE_CONFIRMING_SIGNAL=true` adds an extra filter: a disclosed
-purchase only gets mirrored if there's independent corroborating activity
-for that same company, from any of three sources (within
-`CONFIRMING_SIGNAL_LOOKBACK_DAYS`, default 90):
-
-1. **Corporate lobbying spend** or **government contract award** -- via
-   Quiver, already included in your Hobbyist plan.
-2. **A corporate insider's own open-market stock purchase** -- via
-   `src/sec_edgar_client.py`, which reads SEC EDGAR directly (free, no API
-   key). Insiders must file within 2 business days of the trade, so when
-   this fires it's a much timelier confirmation than Congress's 45-day
-   disclosure lag. Only genuine open-market purchases count (Form 4
-   transaction code `P`) -- stock grants, option exercises, and gifts don't
-   qualify.
-
-It's purely a narrowing filter -- it can only make the bot mirror *fewer*
-trades, never more. If a source is temporarily unavailable, that source is
-just skipped for that ticker rather than blocking the purchase outright
-(the SEC lookup is per-ticker and only runs for a disclosure that wasn't
-already confirmed by lobbying/contracts, so it adds at most a handful of
-extra requests per run, not one per disclosure fetched).
-
-## Insider override (on by default, separate from the above)
-
-The confirming signal above only ever *narrows* what gets mirrored. This is
-different: `INSIDER_OVERRIDE_ENABLED=true` (the default) lets a corporate
-insider's own trade **override** what a congressional disclosure would
-otherwise do, when both exist for the same ticker in the same run.
-
-Rationale: a Form 4 filing is due within 2 business days of the trade, vs.
-30-45 days for a congressional disclosure. When both exist for one ticker,
-the insider's action is simply the fresher of the two signals -- so it wins,
-in either direction:
-
-- An insider **sale** can turn what would have been a congressional-driven
-  buy into a sell (or a skip, if there's nothing yet to sell).
-- An insider **purchase** can turn a congressional-driven sell, or even a
-  disclosure that would have been filtered out entirely (e.g. below
-  `MIN_TRADE_AMOUNT`), into a buy.
-
-This is never silent. Every overridden row in the dashboard's Audit Log gets
-a light-red background and an "INSIDER OVERRIDE" badge, with the insider's
-name, role, and filing date in a tooltip. A **Reverse** button on each
-flagged row undoes it with one click -- sells back if the override bought,
-or buys back (after asking for a dollar amount, since the audit log doesn't
-store the original position's size) if the override sold.
-
-Set `INSIDER_OVERRIDE_ENABLED=false` to fall back to using SEC EDGAR only as
-the narrowing confirming-signal gate above, never as its own override.
-`INSIDER_OVERRIDE_LOOKBACK_DAYS` (default 10) controls how recent the
-insider's own filing has to be to count.
+When halted, the bot still evaluates and logs every filing (so you can see
+what it *would* have done), it just skips submitting orders -- and doesn't
+mark those filings as "seen", so they're retried automatically once the halt
+clears.
 
 ## Audit log
 
-Every disclosure the bot evaluates -- mirrored or not -- is logged with its
+Every filing the bot evaluates -- mirrored or not -- is logged with its
 outcome and reason to `data/decisions_log.jsonl`, which the GitHub Actions
 workflow commits back to the repo after each run (using GitHub's own
 built-in token, no extra secrets needed). The dashboard reads this file
-straight from GitHub to show a live audit trail alongside the account data.
+straight from GitHub to show a live audit trail alongside the account data,
+including a one-click **Reverse** button on any buy/sell row (sells back if
+it bought, buys back if it sold).
 
 ## Performance metrics and charts
 
@@ -165,11 +143,11 @@ down.
 
 The dashboard fetches recent news (via Alpaca's free News API, same account
 keys) for whatever tickers you currently hold, and shows it as a prominent
-banner at the top of the page -- so you don't have to wait 30-45 days for a
-member's sale disclosure to find out a stock you're mirroring already had bad
-news. Each headline has a **Sell** button that closes that position
-immediately at market. This is a manual trigger only -- news never
-auto-sells anything on its own; you read the headline and decide.
+banner at the top of the page -- so you don't have to wait for an insider's
+own sale filing to find out a stock you're mirroring already had bad news.
+Each headline has a **Sell** button that closes that position immediately
+at market. This is a manual trigger only -- news never auto-sells anything
+on its own; you read the headline and decide.
 
 **This is a real trading action reachable from a web page, so the whole
 dashboard requires a login before it works.** Set `DASHBOARD_USERNAME` and
@@ -177,49 +155,39 @@ dashboard requires a login before it works.** Set `DASHBOARD_USERNAME` and
 without both set, the dashboard logs a loud warning and runs with no login
 at all, which is only acceptable for local testing on your own machine.
 
-## Backtesting
-
-Before trusting a filter change, sanity-check it against history:
-```
-python -m src.backtest
-```
-This simulates the same strategy filters against Quiver's historical
-disclosure data and Alpaca's free historical daily bars over the last
-`BACKTEST_DAYS` (default 180), reporting total return, CAGR, max drawdown,
-Sharpe ratio, and win rate on closed trades. It's a real but simplified
-simulation -- fills happen at each disclosure's filed-date close price, with
-no slippage or commission modeling, and equity is only marked-to-market at
-trade-event dates rather than daily. Treat it as a sanity check, not a
-guarantee of future performance.
-
 ## Scheduling
 
-Congress disclosure data doesn't update faster than daily, so there's no
-value running this more than once a day. Two options:
+SEC's daily filing index for a given day is only finalized that evening, so
+the included workflow runs the morning after each weekday rather than right
+after market close -- see `.github/workflows/run-bot.yml`. Two options:
 
 - **Cron on a machine you control** (recommended -- simplest state handling):
-  `0 22 * * 1-5 cd /path/to/BriggsTrading && python -m src.main`
+  `0 6 * * 2-6 cd /path/to/BriggsTrading && python -m src.main`
 - **GitHub Actions** (`.github/workflows/run-bot.yml`, included, disabled
   until you add repo secrets): works, but GitHub's runners are ephemeral so
   the workflow stores `seen_trades.db` as a build artifact and restores it
   each run. That's a bit more fragile than a persistent machine -- if you
   have any server or Raspberry Pi lying around, cron there is more robust.
-  Add `QUIVER_API_TOKEN`, `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` as repo
-  secrets, and `ALPACA_PAPER` / `DRY_RUN` / `CONFIRM_LIVE_TRADING` /
-  `TRADING_HALTED` / `MAX_DRAWDOWN_PCT` / `MAX_POSITION_CONCENTRATION_PCT` /
-  `MAX_PORTFOLIO_EXPOSURE_PCT` / `REQUIRE_CONFIRMING_SIGNAL` /
-  `CONFIRMING_SIGNAL_LOOKBACK_DAYS` / `MIRROR_TRANSACTION_TYPES` /
-  `MIN_TRADE_AMOUNT` / `SEC_EDGAR_USER_AGENT` (optional) as repo variables,
-  to use it. The workflow also
-  needs `contents: write` permission (already set in the file) so it can
-  commit the audit log back to the repo after each run.
+  Add `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` as repo secrets, and
+  `ALPACA_PAPER` / `DRY_RUN` / `CONFIRM_LIVE_TRADING` / `TRADING_HALTED` /
+  `MAX_DRAWDOWN_PCT` / `MAX_POSITION_CONCENTRATION_PCT` /
+  `MAX_PORTFOLIO_EXPOSURE_PCT` / `MIRROR_TRANSACTION_TYPES` /
+  `MIN_TRADE_AMOUNT` / `LOOKBACK_DAYS` / `MAX_INSIDER_FILINGS_PER_RUN` /
+  `FOLLOWED_INSIDERS` / `SEC_EDGAR_USER_AGENT` (all optional, sensible
+  defaults baked in) as repo variables, to use it. The workflow also needs
+  `contents: write` permission (already set in the file) so it can commit
+  the audit log back to the repo after each run.
+
+Given how long a full scan can take (see "How it finds trades" above), check
+your Actions usage if this repo is private -- a public repo gets unlimited
+free minutes.
 
 ## Dashboard
 
 `dashboard/` is a small Flask app that shows account equity, open positions,
-recent orders this bot has placed, and the raw disclosure feed -- polling
-every 30 seconds. It reads live from Alpaca and Quiver; it doesn't need the
-bot's cron job to be running to show current state.
+and recent orders this bot has placed -- polling every 30 seconds. It reads
+live from Alpaca; it doesn't need the bot's cron job to be running to show
+current state.
 
 Run it locally:
 ```
@@ -228,9 +196,9 @@ python -m flask --app dashboard.app run
 then open http://127.0.0.1:5000.
 
 Deploy it on Render using the included `render.yaml`: create a new Blueprint
-from this repo in the Render dashboard, and set `QUIVER_API_TOKEN`,
-`ALPACA_API_KEY`, `ALPACA_SECRET_KEY` as secret env vars there (they're marked
-`sync: false` so Render prompts for them rather than storing them in the repo).
+from this repo in the Render dashboard, and set `ALPACA_API_KEY`,
+`ALPACA_SECRET_KEY` as secret env vars there (they're marked `sync: false` so
+Render prompts for them rather than storing them in the repo).
 
 ## Real Holdings tracker (optional)
 
@@ -264,10 +232,17 @@ with add/edit/delete disabled.
 
 ## Known limitations
 
-- The Quiver API response shape has changed before; if `src/quiver_client.py`
-  starts erroring, check https://api.quiverquant.com/docs/ for the current
-  field names on `/beta/live/congresstrading`.
+- SEC EDGAR's daily index file format has been stable for years, but if
+  `src/sec_edgar_client.py` starts erroring on a 403 that isn't "day doesn't
+  exist," check https://www.sec.gov/os/webmaster-faq#developers for current
+  fair-access requirements (SEC blocks requests with no identifying contact
+  info outright).
 - Orders are simple market orders sized as a fraction of account equity --
   there's no stop-loss, take-profit, or portfolio rebalancing logic.
-- Only mirrors single stocks Alpaca can trade; options, bonds, and other
-  disclosed asset types are skipped.
+- Only mirrors single stocks Alpaca can trade; the issuer on a Form 4 is
+  sometimes a foreign private issuer, a fund, or otherwise untradeable there,
+  in which case it's just skipped.
+- A sale is a much noisier signal than a purchase -- insiders sell for
+  routine reasons (diversification, taxes, pre-scheduled 10b5-1 plans) that
+  have nothing to do with their view of the stock. Consider setting
+  `MIRROR_TRANSACTION_TYPES=Purchase` only if that bothers you.
