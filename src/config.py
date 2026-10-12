@@ -60,12 +60,19 @@ class Config:
     )
     max_portfolio_exposure_pct: float = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "0.75"))
 
-    # SEC asks automated requests identify themselves -- put a real contact
-    # here if you have one, to stay in good standing with their fair-access
-    # policy (a bare, contact-less UA gets blocked outright). See
-    # src/sec_edgar_client.py.
+    # SEC blocks requests outright ("Undeclared Automated Tool") unless the
+    # User-Agent looks like it identifies a real requester -- empirically,
+    # that means containing something @-shaped, not just a bare project name
+    # or URL (confirmed live: the old default here, with no "@", got blocked
+    # from GitHub Actions; this one doesn't). The placeholder domain below is
+    # NOT a real, monitored contact -- set SEC_EDGAR_USER_AGENT to your own
+    # email as a repo variable if you want to actually comply with SEC's
+    # fair-access policy (reachable in case they need to flag abuse), not
+    # just dodge the bot filter. Note this value prints in plain text in
+    # every public GitHub Actions log, so don't put a personal email you
+    # don't want publicly visible. See src/sec_edgar_client.py.
     sec_edgar_user_agent: str = os.getenv(
-        "SEC_EDGAR_USER_AGENT", "BriggsTrading github.com/GiffordB/BriggsTrading"
+        "SEC_EDGAR_USER_AGENT", "BriggsTrading admin@briggstrading.example.com"
     )
 
     news_lookback_days: int = int(os.getenv("NEWS_LOOKBACK_DAYS", "5"))

@@ -43,7 +43,7 @@ jobs:
           LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS || '2' }}
           MAX_INSIDER_FILINGS_PER_RUN: ${{ vars.MAX_INSIDER_FILINGS_PER_RUN || '2000' }}
           FOLLOWED_INSIDERS: ${{ vars.FOLLOWED_INSIDERS }}
-          SEC_EDGAR_USER_AGENT: ${{ vars.SEC_EDGAR_USER_AGENT || 'BriggsTrading github.com/GiffordB/BriggsTrading' }}
+          SEC_EDGAR_USER_AGENT: ${{ vars.SEC_EDGAR_USER_AGENT || 'BriggsTrading admin@briggstrading.example.com' }}
         run: python -m src.main
       - name: Upload state db so trades aren't re-mirrored next run
         uses: actions/upload-artifact@v4
