@@ -122,6 +122,7 @@ class SECEdgarClient:
                 logger.warning("Could not fetch SEC daily index for %s", day.isoformat(), exc_info=True)
 
         candidates = list(accessions.values())
+        logger.info("%d unique candidate Form 4 filings across the scanned window", len(candidates))
         if max_filings is not None and len(candidates) > max_filings:
             logger.warning(
                 "%d candidate Form 4 filings found, capping to MAX_INSIDER_FILINGS_PER_RUN=%d",
@@ -133,8 +134,8 @@ class SECEdgarClient:
         for candidate in candidates:
             try:
                 filings.extend(self._fetch_directional_transactions(candidate))
-            except Exception:
-                logger.debug("Could not fetch/parse filing %s", candidate["accession"], exc_info=True)
+            except Exception as exc:
+                logger.warning("Could not fetch/parse filing %s: %s", candidate["accession"], exc)
             time.sleep(self._request_delay)  # be polite to SEC's servers between requests
         return filings
 
@@ -142,13 +143,24 @@ class SECEdgarClient:
         """One day's worth of Form 4 index rows: {accession, cik, filed_date}.
         Raises on a genuine fetch error; a missing day's file (weekend,
         holiday, or a future date) is treated as "no filings that day", not
-        an error -- SEC serves that as 403, not 404, for this path."""
+        an error -- SEC serves that as 403, not 404, for this path. That
+        same 403/AccessDenied body is indistinguishable, by content alone,
+        from an IP-based block -- see the logged diagnostics below, which
+        exist specifically to tell the two apart when "0 filings" shows up
+        for a day that should have real data."""
         quarter = (day.month - 1) // 3 + 1
         url = f"{SEC_BASE_URL}/Archives/edgar/daily-index/{day.year}/QTR{quarter}/form.{day:%Y%m%d}.idx"
         resp = self._session.get(url, timeout=30)
         if resp.status_code in (403, 404):
+            logger.warning(
+                "Daily index for %s returned %d (treated as 'no filings that day' -- "
+                "could also be an IP block if this date should have real data). "
+                "Body: %r",
+                day.isoformat(), resp.status_code, resp.text[:300],
+            )
             return []
         resp.raise_for_status()
+        logger.info("Daily index for %s: %d bytes", day.isoformat(), len(resp.content))
 
         entries = []
         for line in resp.text.splitlines():
