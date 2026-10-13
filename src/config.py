@@ -31,7 +31,7 @@ class Config:
     # Exact dollar threshold (shares x price, not a bucketed range -- Form 4
     # reports both precisely) a single insider transaction must clear to be
     # worth mirroring at all.
-    min_trade_amount: float = float(os.getenv("MIN_TRADE_AMOUNT", "15000"))
+    min_trade_amount: float = float(os.getenv("MIN_TRADE_AMOUNT", "50000"))
     mirror_transaction_types: list[str] = field(
         default_factory=lambda: _list("MIRROR_TRANSACTION_TYPES") or ["Purchase"]
     )
