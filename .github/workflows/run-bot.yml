@@ -40,6 +40,7 @@ jobs:
           MAX_PORTFOLIO_EXPOSURE_PCT: ${{ vars.MAX_PORTFOLIO_EXPOSURE_PCT || '0.75' }}
           MIRROR_TRANSACTION_TYPES: ${{ vars.MIRROR_TRANSACTION_TYPES || 'Purchase' }}
           MIN_TRADE_AMOUNT: ${{ vars.MIN_TRADE_AMOUNT || '50000' }}
+          MIN_SALE_AMOUNT: ${{ vars.MIN_SALE_AMOUNT || '25000' }}
           LOOKBACK_DAYS: ${{ vars.LOOKBACK_DAYS || '2' }}
           MAX_INSIDER_FILINGS_PER_RUN: ${{ vars.MAX_INSIDER_FILINGS_PER_RUN || '2000' }}
           FOLLOWED_INSIDERS: ${{ vars.FOLLOWED_INSIDERS }}

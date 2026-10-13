@@ -34,10 +34,14 @@ def _filter_reason(filing: InsiderFiling, config: Config) -> str | None:
             f"transaction type '{filing.transaction_type}' not in "
             f"MIRROR_TRANSACTION_TYPES {config.mirror_transaction_types}"
         )
-    if filing.notional < config.min_trade_amount:
+    threshold = (
+        config.min_sale_amount if filing.transaction_type == "Sale" else config.min_trade_amount
+    )
+    threshold_name = "MIN_SALE_AMOUNT" if filing.transaction_type == "Sale" else "MIN_TRADE_AMOUNT"
+    if filing.notional < threshold:
         return (
-            f"trade value ${filing.notional:,.0f} below MIN_TRADE_AMOUNT "
-            f"(${config.min_trade_amount:,.0f})"
+            f"trade value ${filing.notional:,.0f} below {threshold_name} "
+            f"(${threshold:,.0f})"
         )
     if config.followed_insiders and filing.insider_name not in config.followed_insiders:
         return f"'{filing.insider_name}' not in FOLLOWED_INSIDERS"

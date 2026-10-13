@@ -29,9 +29,12 @@ class Config:
     max_notional_per_trade: float = float(os.getenv("MAX_NOTIONAL_PER_TRADE", "2000"))
     max_notional_per_run: float = float(os.getenv("MAX_NOTIONAL_PER_RUN", "5000"))
     # Exact dollar threshold (shares x price, not a bucketed range -- Form 4
-    # reports both precisely) a single insider transaction must clear to be
+    # reports both precisely) a single insider *purchase* must clear to be
     # worth mirroring at all.
     min_trade_amount: float = float(os.getenv("MIN_TRADE_AMOUNT", "50000"))
+    # Same idea but for sales, kept as a separate knob since purchases and
+    # sales clear at very different volumes and may warrant different bars.
+    min_sale_amount: float = float(os.getenv("MIN_SALE_AMOUNT", "25000"))
     mirror_transaction_types: list[str] = field(
         default_factory=lambda: _list("MIRROR_TRANSACTION_TYPES") or ["Purchase"]
     )
