@@ -1,0 +1,1 @@
+{"logged_at": "2026-11-27T22:48:22.376331+00:00", "symbol": "-", "strategy_name": "-", "direction": "-", "notional": 0.0, "predicted_r": 0.0, "score": 0.0, "decision": "no_trade", "reason": "blocked by risk guard: Total exposure 84.8% exceeds MAX_PORTFOLIO_EXPOSURE_PCT (75.0%)"}
