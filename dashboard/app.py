@@ -42,11 +42,16 @@ RAW_BASE = "https://raw.githubusercontent.com/GiffordB/BriggsTrading/main"
 DECISIONS_LOG_URL = f"{RAW_BASE}/data/decisions_log.jsonl"
 SHORTLIST_URL = f"{RAW_BASE}/research/shortlist.json"
 KILLED_URL = f"{RAW_BASE}/research/killed.md"
+GATES_SUMMARY_URL = f"{RAW_BASE}/research/gates_summary.json"
+FUNNEL_URL = f"{RAW_BASE}/research/funnel.json"
 
 _decisions_cache: dict = {"data": [], "fetched_at": 0.0}
 _DECISIONS_TTL_SECONDS = 300
 
-_research_cache: dict = {"shortlist": [], "killed_count": None, "fetched_at": 0.0}
+_research_cache: dict = {
+    "shortlist": [], "killed_count": None, "gates_summary": [], "funnel": None,
+    "fetched_at": 0.0,
+}
 _RESEARCH_TTL_SECONDS = 900
 
 _news_cache: dict = {"data": [], "fetched_at": 0.0}
@@ -115,10 +120,22 @@ def _research_summary() -> dict:
                 _research_cache["killed_count"] = None
         except Exception:
             _research_cache["killed_count"] = None
+        try:
+            resp = requests.get(GATES_SUMMARY_URL, timeout=10)
+            _research_cache["gates_summary"] = resp.json() if resp.status_code == 200 else []
+        except Exception:
+            _research_cache["gates_summary"] = []
+        try:
+            resp = requests.get(FUNNEL_URL, timeout=10)
+            _research_cache["funnel"] = resp.json() if resp.status_code == 200 else None
+        except Exception:
+            _research_cache["funnel"] = None
         _research_cache["fetched_at"] = now
     return {
         "shortlist": _research_cache["shortlist"],
         "killed_count": _research_cache["killed_count"],
+        "gates_summary": _research_cache["gates_summary"],
+        "funnel": _research_cache["funnel"],
     }
 
 
@@ -278,7 +295,7 @@ def api_data():
         research = _research_summary()
     except Exception:
         logger.exception("Could not fetch research summary")
-        research = {"shortlist": [], "killed_count": None}
+        research = {"shortlist": [], "killed_count": None, "gates_summary": [], "funnel": None}
 
     try:
         baseline = baseline_store.get_baseline()

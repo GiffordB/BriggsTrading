@@ -3,37 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BriggsTrading Dashboard</title>
+<title>BriggsTrading Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    color-scheme: light;
-    --page-plane:     #f9f9f7;
-    --surface-1:      #fcfcfb;
-    --text-primary:   #0b0b0b;
-    --text-secondary: #52514e;
-    --text-muted:     #898781;
-    --gridline:       #e1e0d9;
-    --border:         rgba(11,11,11,0.10);
-    --good:           #006300;
-    --critical:       #d03b3b;
-    --warning:        #fab219;
-    --series-1:       #2a78d6;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --page-plane:     #0d0d0d;
-      --surface-1:      #1a1a19;
-      --text-primary:   #ffffff;
-      --text-secondary: #c3c2b7;
-      --text-muted:     #898781;
-      --gridline:       #2c2c2a;
-      --border:         rgba(255,255,255,0.10);
-      --good:           #0ca30c;
-      --critical:       #e66767;
-      --warning:        #fab219;
-      --series-1:       #3987e5;
-    }
+    color-scheme: dark;
+    --page-plane:     #0b0b0b;
+    --surface-1:      #151515;
+    --surface-2:      #191919;
+    --text-primary:   #efefef;
+    --text-secondary: #9c9c9c;
+    --text-muted:     #666666;
+    --gridline:       #303030;
+    --border:         rgba(255,255,255,0.10);
+    --good:           #0aac23;
+    --warning:        #fbb315;
+    --serious:        #f18a59;
+    --critical:       #dc3c3d;
+    --series-1:       #338ced;
+    /* ordinal funnel ramp, lightest -> darkest (steps 400-600 of the
+       sequential blue ramp -- kept in this band, not lighter, so white
+       label text on each stage clears readable contrast) */
+    --funnel-1: #338ced;
+    --funnel-2: #257de0;
+    --funnel-3: #2370cd;
+    --funnel-4: #1b64be;
+    --funnel-5: #1757ac;
   }
 
   * { box-sizing: border-box; }
@@ -41,89 +37,145 @@
     margin: 0;
     background: var(--page-plane);
     color: var(--text-primary);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding: 24px 16px 64px;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    padding: 0 16px 64px;
   }
-  .wrap { max-width: 1080px; margin: 0 auto; }
+  .wrap { max-width: 1120px; margin: 0 auto; }
 
-  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
-  h1 { font-size: 20px; margin: 0; }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 20px 0 16px; }
+  h1 { font-size: 18px; margin: 0; font-weight: 800; letter-spacing: 0.02em; }
+  h1 .cursor { display: inline-block; width: 8px; height: 16px; background: var(--good); vertical-align: -2px; margin-left: 4px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
   .mode-badges { display: flex; gap: 8px; }
   .badge {
-    font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 5px;
-    border: 1px solid var(--border); color: var(--text-secondary);
+    font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px;
+    border: 1px solid var(--border); color: var(--text-secondary); letter-spacing: 0.04em;
   }
   .badge.paper { color: var(--warning); border-color: var(--warning); }
   .badge.dry-run { color: var(--text-muted); }
 
-  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  /* --- Ticker tape --- */
+  .ticker-tape {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden; margin-bottom: 16px; position: relative; height: 30px;
+  }
+  .ticker-tape .ticker-track {
+    display: inline-flex; white-space: nowrap; position: absolute; left: 0; top: 0;
+    height: 30px; align-items: center; animation: ticker-scroll 40s linear infinite;
+    padding-left: 100%;
+  }
+  .ticker-tape:hover .ticker-track { animation-play-state: paused; }
+  @keyframes ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  .ticker-item { display: inline-flex; align-items: center; gap: 6px; padding: 0 18px; font-size: 12px; border-right: 1px solid var(--border); }
+  .ticker-tag { font-weight: 700; font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+  .ticker-tag.enter { background: color-mix(in srgb, var(--good) 25%, transparent); color: var(--good); }
+  .ticker-tag.skip, .ticker-tag.no_trade { background: color-mix(in srgb, var(--text-muted) 25%, transparent); color: var(--text-secondary); }
+  .ticker-tag.dry_run { background: color-mix(in srgb, var(--warning) 25%, transparent); color: var(--warning); }
+  .ticker-tag.killed { background: color-mix(in srgb, var(--critical) 25%, transparent); color: var(--critical); }
+  .ticker-tag.shortlisted { background: color-mix(in srgb, var(--series-1) 25%, transparent); color: var(--series-1); }
+  @media (prefers-reduced-motion: reduce) { .ticker-tape .ticker-track { animation: none; } }
+
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .stat-tile {
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
     padding: 14px 16px;
   }
-  .stat-tile .label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-  .stat-tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .stat-tile .value.good { color: var(--good); }
-  .stat-tile .value.critical { color: var(--critical); }
+  .stat-tile .label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-tile .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat-tile .value.good { color: var(--good); text-shadow: 0 0 12px color-mix(in srgb, var(--good) 40%, transparent); }
+  .stat-tile .value.critical { color: var(--critical); text-shadow: 0 0 12px color-mix(in srgb, var(--critical) 40%, transparent); }
 
   section { margin-bottom: 28px; }
-  section h2 { font-size: 15px; color: var(--text-secondary); margin: 0 0 10px; }
+  section h2 { font-size: 13px; color: var(--text-secondary); margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
 
   a { color: var(--series-1); text-decoration: none; }
   a:hover { text-decoration: underline; }
-  .ticker-link { font-weight: 600; }
+  .ticker-link { font-weight: 700; }
 
-  table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  th, td { text-align: left; padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--gridline); }
-  th { color: var(--text-muted); font-weight: 500; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; font-size: 12px; border-bottom: 1px solid var(--gridline); }
+  th { color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
   tr:last-child td { border-bottom: none; }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   td.good { color: var(--good); }
   td.critical { color: var(--critical); }
   .empty-row td { color: var(--text-muted); text-align: center; padding: 16px; }
 
-  .updated { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .updated { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
   .table-scroll { overflow-x: auto; }
 
   .risk-banner {
-    display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 10px;
-    font-size: 13px; margin-bottom: 20px; border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px;
+    font-size: 12px; margin-bottom: 16px; border: 1px solid var(--border);
   }
   .risk-banner.ok { color: var(--good); }
   .risk-banner.halted { color: var(--critical); background: color-mix(in srgb, var(--critical) 10%, var(--surface-1)); }
-  .risk-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+  .risk-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; box-shadow: 0 0 8px currentColor; }
   .risk-banner ul { margin: 4px 0 0; padding-left: 18px; }
 
   .baseline-banner {
     display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 12px;
+    padding: 10px 14px; border-radius: 8px; font-size: 12px; margin-bottom: 12px;
     border: 1px solid var(--border); background: var(--surface-1); flex-wrap: wrap;
   }
   .baseline-banner .text strong { font-variant-numeric: tabular-nums; }
-  .baseline-btn {
-    font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+  .baseline-btn, .ticker-btn-plain {
+    font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 5px;
     border: 1px solid var(--series-1); color: var(--series-1); background: transparent;
-    cursor: pointer; flex-shrink: 0;
+    cursor: pointer; flex-shrink: 0; font-family: inherit;
   }
   .baseline-btn:hover { background: color-mix(in srgb, var(--series-1) 15%, transparent); }
 
-  .decision-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
+  .decision-badge { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
   .decision-badge.enter { color: var(--good); }
   .decision-badge.skip, .decision-badge.no_trade { color: var(--text-muted); }
   .decision-badge.dry_run { color: var(--warning); }
-  .direction-tag { font-size: 11px; color: var(--text-muted); }
+  .direction-tag { font-size: 10px; color: var(--text-muted); }
 
   .shortlist-card {
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px 16px; margin-bottom: 8px;
   }
-  .shortlist-card .name { font-weight: 600; }
-  .shortlist-card .score { float: right; font-variant-numeric: tabular-nums; color: var(--good); }
-  .shortlist-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+  .shortlist-card .name { font-weight: 700; }
+  .shortlist-card .score { float: right; font-variant-numeric: tabular-nums; color: var(--good); font-weight: 700; }
+  .shortlist-card .meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  /* --- Research funnel --- */
+  .funnel-row { display: flex; align-items: stretch; gap: 0; overflow-x: auto; }
+  .funnel-stage {
+    flex: 1 1 0; min-width: 130px; padding: 14px 12px; text-align: center;
+    color: #ffffff; position: relative; display: flex; flex-direction: column;
+    justify-content: center; gap: 4px;
+  }
+  .funnel-stage:first-child { border-radius: 8px 0 0 8px; }
+  .funnel-stage:last-child { border-radius: 0 8px 8px 0; }
+  .funnel-stage .n { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .funnel-stage .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.85; }
+  .funnel-arrow { display: flex; align-items: center; color: var(--text-muted); font-size: 16px; padding: 0 4px; flex: 0 0 auto; }
+
+  /* --- Gates scorecard --- */
+  .gate-card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 8px;
+  }
+  .gate-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .gate-card .name { font-weight: 700; }
+  .gate-card .status-badge { font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; letter-spacing: 0.04em; }
+  .gate-card .status-badge.survived { color: var(--good); background: color-mix(in srgb, var(--good) 18%, transparent); }
+  .gate-card .status-badge.killed { color: var(--critical); background: color-mix(in srgb, var(--critical) 18%, transparent); }
+  .gate-pips { display: flex; gap: 6px; margin-top: 8px; }
+  .gate-pip {
+    width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 800; cursor: help; flex-shrink: 0;
+  }
+  .gate-pip.pass { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); border: 1px solid color-mix(in srgb, var(--good) 60%, transparent); }
+  .gate-pip.fail { background: color-mix(in srgb, var(--critical) 22%, transparent); color: var(--critical); border: 1px solid color-mix(in srgb, var(--critical) 60%, transparent); }
+  .gate-labels { display: flex; gap: 6px; margin-top: 4px; }
+  .gate-labels span { width: 24px; font-size: 8px; text-align: center; color: var(--text-muted); line-height: 1.1; }
 
   .news-alerts { margin-bottom: 20px; }
   .news-alerts-header {
-    display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800;
+    display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800;
     color: var(--critical); margin-bottom: 10px; letter-spacing: 0.02em;
   }
   .news-alerts-header .dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; }
@@ -138,7 +190,7 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     background: color-mix(in srgb, var(--critical) 15%, var(--surface-1));
     border: 1px solid color-mix(in srgb, var(--critical) 50%, var(--border));
-    border-radius: 10px; padding: 10px 14px; margin-bottom: 8px;
+    border-radius: 8px; padding: 10px 14px; margin-bottom: 8px;
     animation: alert-flash 1.4s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -146,44 +198,44 @@
   }
   .news-card .ticker-badges { display: flex; gap: 4px; flex-wrap: wrap; flex-shrink: 0; }
   .news-card .ticker-badge {
-    font-size: 12px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
     background: var(--critical); color: #ffffff !important; flex-shrink: 0;
     text-decoration: none;
   }
   .news-card .ticker-badge:hover { text-decoration: underline; }
-  .news-card .headline { font-size: 13px; flex: 1; min-width: 0; font-weight: 600; }
+  .news-card .headline { font-size: 12px; flex: 1; min-width: 0; font-weight: 600; }
   .news-card .headline a { color: var(--text-primary); }
-  .news-card .meta { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .news-card .meta { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
   .sell-btn {
-    font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+    font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 5px;
     border: 1px solid var(--critical); color: var(--critical); background: transparent;
-    cursor: pointer; flex-shrink: 0;
+    cursor: pointer; flex-shrink: 0; font-family: inherit;
   }
   .sell-btn:hover { background: color-mix(in srgb, var(--critical) 15%, transparent); }
   .sell-btn:disabled { opacity: 0.5; cursor: default; }
 
   .chart-card {
-    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 16px; height: 220px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; height: 260px;
   }
   .sparkline-cell { width: 90px; }
   .sparkline-cell canvas { width: 84px; height: 28px; }
 
-  .price-source { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; margin-left: 5px; border: 1px solid var(--border); color: var(--text-muted); vertical-align: middle; }
+  .price-source { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-left: 5px; border: 1px solid var(--border); color: var(--text-muted); vertical-align: middle; }
   .price-source.manual { color: var(--warning); border-color: var(--warning); }
   .holdings-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .holdings-form input {
-    flex: 1 1 130px; min-width: 100px; padding: 7px 10px; font-size: 13px;
-    border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1); color: var(--text-primary);
+    flex: 1 1 130px; min-width: 100px; padding: 7px 10px; font-size: 12px; font-family: inherit;
+    border: 1px solid var(--border); border-radius: 5px; background: var(--surface-1); color: var(--text-primary);
   }
   .holdings-form button {
-    padding: 7px 14px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer;
+    padding: 7px 14px; font-size: 12px; font-weight: 700; border-radius: 5px; cursor: pointer; font-family: inherit;
     border: 1px solid var(--series-1); color: var(--series-1); background: transparent;
   }
   .holdings-form button:hover { background: color-mix(in srgb, var(--series-1) 15%, transparent); }
-  .hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .hint { font-size: 11px; color: var(--text-muted); margin-top: 8px; }
   .row-btn {
-    font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 5px; cursor: pointer;
+    font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-family: inherit;
     border: 1px solid var(--border); color: var(--text-secondary); background: transparent; margin-left: 4px;
   }
   .row-btn:hover { background: color-mix(in srgb, var(--text-secondary) 12%, transparent); }
@@ -194,12 +246,16 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>BriggsTrading</h1>
+    <h1>BRIGGSTRADING<span class="cursor"></span></h1>
     <div class="mode-badges">
       <span class="badge {{ 'paper' if paper else '' }}">{{ 'PAPER' if paper else 'LIVE' }}</span>
       {% if dry_run %}<span class="badge dry-run">DRY RUN</span>{% endif %}
     </div>
   </header>
+
+  <div class="ticker-tape" id="ticker-tape">
+    <div class="ticker-track" id="ticker-track"></div>
+  </div>
 
   <div class="news-alerts" id="news-alerts" hidden>
     <div class="news-alerts-header"><span class="dot"></span><span>ALERT!! Bad news on your holdings</span></div>
@@ -233,6 +289,17 @@
   <section>
     <h2>Account Equity (3mo)</h2>
     <div class="chart-card"><canvas id="equity-chart"></canvas></div>
+    <div class="hint">Dashed line marks the strategy baseline (if set). Dots mark each entry this bot made.</div>
+  </section>
+
+  <section>
+    <h2>Research Pipeline &mdash; last night's run</h2>
+    <div class="funnel-row" id="funnel-row"></div>
+  </section>
+
+  <section>
+    <h2>Shortlist &amp; Skeptic Scorecard</h2>
+    <div id="scorecard-cards"><p class="hint">Loading&hellip;</p></div>
   </section>
 
   <section>
@@ -297,12 +364,6 @@
   </section>
 
   <section>
-    <h2>Research &mdash; last night's shortlist</h2>
-    <div id="shortlist-cards"><p class="hint">Loading&hellip;</p></div>
-    <div class="hint" id="killed-count-hint"></div>
-  </section>
-
-  <section>
     <h2>Audit Log &mdash; every entry/skip decision</h2>
     <div class="table-scroll">
       <table>
@@ -333,6 +394,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 <script>
 const fmtMoney = (n) => n == null ? '—' : (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const fmtPct = (n) => n == null ? '—' : (n * 100).toFixed(2) + '%';
@@ -384,7 +446,7 @@ function cssVar(name) {
 }
 
 let equityChart = null;
-function renderEquityChart(equityCurve) {
+function renderEquityChart(equityCurve, baseline, decisions) {
   const canvas = document.getElementById('equity-chart');
   if (!equityCurve || equityCurve.length < 2) {
     if (equityChart) { equityChart.destroy(); equityChart = null; }
@@ -397,6 +459,25 @@ function renderEquityChart(equityCurve) {
   const lineColor = cssVar('--series-1');
   const muted = cssVar('--text-muted');
   const grid = cssVar('--gridline');
+  const good = cssVar('--good');
+
+  const annotations = {};
+  if (baseline && baseline.starting_equity) {
+    annotations.baselineLine = {
+      type: 'line', yMin: baseline.starting_equity, yMax: baseline.starting_equity,
+      borderColor: muted, borderWidth: 1, borderDash: [6, 4],
+      label: { display: true, content: 'baseline', position: 'start', color: muted,
+                font: { size: 10, family: 'JetBrains Mono' }, backgroundColor: 'transparent' },
+    };
+  }
+  (decisions || []).filter(d => d.decision === 'enter').slice(0, 20).forEach((d, i) => {
+    const t = new Date(d.logged_at).getTime();
+    annotations['entry' + i] = {
+      type: 'line', xMin: t, xMax: t, borderColor: good, borderWidth: 1, borderDash: [2, 3],
+      label: { display: true, content: d.symbol, position: 'end', color: good,
+                font: { size: 9, family: 'JetBrains Mono' }, backgroundColor: 'transparent', rotation: -90 },
+    };
+  });
 
   if (equityChart) equityChart.destroy();
   equityChart = new Chart(canvas, {
@@ -417,7 +498,7 @@ function renderEquityChart(equityCurve) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: { legend: { display: false }, annotation: { annotations } },
       scales: {
         x: { type: 'time', time: { unit: 'week' }, grid: { display: false }, ticks: { color: muted, maxRotation: 0 } },
         y: { grid: { color: grid }, ticks: { color: muted, callback: (v) => '$' + v.toLocaleString() } },
@@ -545,24 +626,92 @@ function renderBaseline(baseline) {
   btn.textContent = 'Reset starting point';
 }
 
-function renderShortlist(shortlist, killedCount) {
-  const container = document.getElementById('shortlist-cards');
-  if (!shortlist || shortlist.length === 0) {
-    container.innerHTML = '<p class="hint">No strategy cleared the bar last night -- no trade today. That\'s a valid outcome, not a bug.</p>';
-  } else {
-    container.innerHTML = shortlist.map(s => `
-      <div class="shortlist-card">
-        <span class="name">${escapeHtml(s.name)}</span>
-        <span class="score">${s.score.toFixed(1)}/10</span>
-        <div class="meta">${escapeHtml(s.direction)} &middot; stop ${(s.stop_pct*100).toFixed(1)}% &middot;
-          ${s.target_pct ? 'target ' + (s.target_pct*100).toFixed(1) + '%' : 'time exit only'} &middot;
-          max hold ${s.max_holding_days}d &middot; mean R ${s.mean_r.toFixed(2)}</div>
-      </div>`).join('');
+const GATE_ORDER = ['reason', 'costs', 'out_of_sample', 'robustness', 'luck_check', 'baseline', 'sample_size'];
+const GATE_SHORT = {reason: 'RSN', costs: 'CST', out_of_sample: 'OOS', robustness: 'ROB', luck_check: 'LCK', baseline: 'BAS', sample_size: 'SIZ'};
+
+function renderScorecard(gatesSummary, shortlist, killedCount) {
+  const container = document.getElementById('scorecard-cards');
+  if (!gatesSummary || gatesSummary.length === 0) {
+    container.innerHTML = '<p class="hint">No research run yet.</p>';
+    return;
   }
-  const hint = document.getElementById('killed-count-hint');
-  hint.textContent = killedCount != null
-    ? `${killedCount} other idea${killedCount === 1 ? '' : 's'} failed a Skeptic gate last night and were killed.`
+  const shortlistByName = Object.fromEntries((shortlist || []).map(s => [s.name, s]));
+  const isShortlisted = (shortlist || []).length > 0;
+
+  const cards = gatesSummary.map(r => {
+    const byName = Object.fromEntries((r.gates || []).map(g => [g.name, g]));
+    const pips = GATE_ORDER.map(gn => {
+      const g = byName[gn];
+      if (!g) return `<span class="gate-pip" title="not run">&middot;</span>`;
+      return `<span class="gate-pip ${g.passed ? 'pass' : 'fail'}" title="${escapeHtml(g.name)}: ${escapeHtml(g.detail)}">${g.passed ? '✓' : '✗'}</span>`;
+    }).join('');
+    const labels = GATE_ORDER.map(gn => `<span>${GATE_SHORT[gn]}</span>`).join('');
+    const s = shortlistByName[r.name];
+    const tradeMeta = s ? `
+        <div class="meta">On today's shortlist: ${escapeHtml(s.direction)} &middot; stop ${(s.stop_pct*100).toFixed(1)}% &middot;
+          ${s.target_pct ? 'target ' + (s.target_pct*100).toFixed(1) + '%' : 'time exit only'} &middot;
+          max hold ${s.max_holding_days}d &middot; mean R ${s.mean_r.toFixed(2)}</div>` : '';
+    return `
+      <div class="gate-card">
+        <div class="gate-card-head">
+          <span class="name">${escapeHtml(r.name)}</span>
+          <span class="status-badge ${r.passed_all ? 'survived' : 'killed'}">${r.passed_all ? `SURVIVED &middot; ${r.score != null ? r.score.toFixed(1) + '/10' : ''}` : 'KILLED'}</span>
+        </div>
+        <div class="gate-pips">${pips}</div>
+        <div class="gate-labels">${labels}</div>
+        ${tradeMeta}
+      </div>`;
+  }).join('');
+
+  const noShortlistNote = !isShortlisted
+    ? '<p class="hint">No strategy cleared the shortlist bar last night -- no trade today. That\'s a valid outcome, not a bug.</p>'
     : '';
+  const killedNote = killedCount != null
+    ? `<p class="hint">${killedCount} idea${killedCount === 1 ? '' : 's'} failed a Skeptic gate last night and were killed.</p>`
+    : '';
+  container.innerHTML = noShortlistNote + cards + killedNote;
+}
+
+function renderFunnel(funnel) {
+  const container = document.getElementById('funnel-row');
+  if (!funnel) {
+    container.innerHTML = '<p class="hint">No research run yet.</p>';
+    return;
+  }
+  const stages = [
+    {n: funnel.symbols_scanned, lbl: 'Symbols Scanned', color: 'var(--funnel-1)'},
+    {n: funnel.anomalies_tonight, lbl: 'Anomalies Found', color: 'var(--funnel-2)'},
+    {n: funnel.ideas_tested, lbl: 'Ideas Tested', color: 'var(--funnel-3)'},
+    {n: funnel.survived_gates, lbl: 'Survived 7 Gates', color: 'var(--funnel-4)'},
+    {n: funnel.shortlisted, lbl: 'Shortlisted', color: 'var(--funnel-5)'},
+  ];
+  container.innerHTML = stages.map((s, i) => `
+    ${i > 0 ? '<span class="funnel-arrow">&#8594;</span>' : ''}
+    <div class="funnel-stage" style="background:${s.color}">
+      <span class="n">${s.n}</span>
+      <span class="lbl">${s.lbl}</span>
+    </div>`).join('');
+}
+
+function renderTicker(decisions, killedCount, shortlistCount) {
+  const track = document.getElementById('ticker-track');
+  const items = [];
+  (decisions || []).slice(0, 15).forEach(d => {
+    const tagClass = (d.decision || '').toLowerCase();
+    let text;
+    if (d.decision === 'enter') text = `${d.symbol} ${d.direction} via ${d.strategy_name} ~${fmtMoney(d.notional)}`;
+    else if (d.decision === 'no_trade') text = 'no trade';
+    else if (d.decision === 'dry_run') text = `${d.symbol} ${d.direction} (dry run) via ${d.strategy_name}`;
+    else text = `${d.symbol || '-'} ${d.reason || ''}`.trim();
+    items.push(`<span class="ticker-item"><span class="ticker-tag ${escapeHtml(tagClass)}">${escapeHtml((d.decision || '-').toUpperCase())}</span>${escapeHtml(text)}</span>`);
+  });
+  if (shortlistCount != null) {
+    items.push(`<span class="ticker-item"><span class="ticker-tag shortlisted">SHORTLIST</span>${shortlistCount} strateg${shortlistCount === 1 ? 'y' : 'ies'} cleared last night</span>`);
+  }
+  if (killedCount != null) {
+    items.push(`<span class="ticker-item"><span class="ticker-tag killed">KILLED</span>${killedCount} idea${killedCount === 1 ? '' : 's'} failed a gate last night</span>`);
+  }
+  track.innerHTML = items.length ? items.join('') : '<span class="ticker-item">No activity yet &mdash; waiting on the first research run&hellip;</span>';
 }
 
 async function addRealHolding(event) {
@@ -710,8 +859,11 @@ async function refresh() {
     bannerText.textContent = `Risk OK — drawdown ${data.risk.drawdown_pct?.toFixed(1) ?? '—'}%, exposure ${data.risk.exposure_pct?.toFixed(1) ?? '—'}% of equity, daily P/L ${data.risk.daily_pl_pct?.toFixed(1) ?? '—'}%`;
   }
 
-  renderShortlist(data.research?.shortlist, data.research?.killed_count);
+  const research = data.research || {};
+  renderScorecard(research.gates_summary, research.shortlist, research.killed_count);
+  renderFunnel(research.funnel);
   renderBaseline(data.baseline);
+  renderTicker(data.decisions, research.killed_count, research.shortlist ? research.shortlist.length : null);
 
   const m = data.metrics || {};
   document.getElementById('stat-sharpe').textContent = m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : 'n/a';
@@ -734,7 +886,7 @@ async function refresh() {
       <td class="sparkline-cell"><canvas id="sparkline-${escapeHtml(p.symbol)}" width="84" height="28"></canvas></td>
     </tr>`);
   renderSparklines(data.price_history, data.positions);
-  renderEquityChart(data.equity_curve);
+  renderEquityChart(data.equity_curve, data.baseline, data.decisions);
   renderRealHoldings(data.real_holdings);
 
   renderRows('orders-body', data.orders, 7, (o) => `

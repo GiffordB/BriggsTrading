@@ -115,6 +115,26 @@ def run() -> None:
         )
     (RESEARCH_DIR / "shortlist.json").write_text(json.dumps(shortlist_json, indent=2))
 
+    gates_summary = [
+        {
+            "name": report.strategy_name,
+            "passed_all": report.passed_all,
+            "score": scores[report.strategy_name].total if report.strategy_name in scores else None,
+            "gates": [{"name": g.name, "passed": g.passed, "detail": g.detail} for g in report.gates],
+        }
+        for report in reports
+    ]
+    (RESEARCH_DIR / "gates_summary.json").write_text(json.dumps(gates_summary, indent=2))
+
+    funnel = {
+        "symbols_scanned": len(symbol_bars),
+        "anomalies_tonight": len(tonight),
+        "ideas_tested": len(reports),
+        "survived_gates": sum(1 for r in reports if r.passed_all),
+        "shortlisted": len(shortlisted_names),
+    }
+    (RESEARCH_DIR / "funnel.json").write_text(json.dumps(funnel, indent=2))
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
