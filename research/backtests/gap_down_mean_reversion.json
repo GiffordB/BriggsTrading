@@ -1,0 +1,44 @@
+{
+  "strategy_name": "gap_down_mean_reversion",
+  "passed_all": false,
+  "score": null,
+  "gates": [
+    {
+      "name": "reason",
+      "passed": true,
+      "detail": "reason=286 chars, losing_side=173 chars (need >= 60 each)"
+    },
+    {
+      "name": "costs",
+      "passed": false,
+      "detail": "mean R at 2x costs (10bps/side) = -0.032 (2306 trades)"
+    },
+    {
+      "name": "out_of_sample",
+      "passed": false,
+      "detail": "train mean R=-0.023 (1614 trades), test mean R=0.025 (692 trades)"
+    },
+    {
+      "name": "robustness",
+      "passed": false,
+      "detail": "151 symbols; x0.8: mean R=-0.017 (2355 trades), x1.2: mean R=-0.006 (2255 trades)"
+    },
+    {
+      "name": "luck_check",
+      "passed": false,
+      "detail": "worst 5% of 1000 bootstrap resamples: mean R=-0.043"
+    },
+    {
+      "name": "baseline",
+      "passed": false,
+      "detail": "strategy mean R=-0.009 vs random-entry mean R=-0.006 (2306 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+    },
+    {
+      "name": "sample_size",
+      "passed": true,
+      "detail": "2306 out-of-sample trades (need >= 50)"
+    }
+  ],
+  "num_trades": 2306,
+  "mean_r": -0.00891066562549406
+}

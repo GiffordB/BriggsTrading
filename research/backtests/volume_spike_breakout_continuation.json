@@ -1,0 +1,44 @@
+{
+  "strategy_name": "volume_spike_breakout_continuation",
+  "passed_all": true,
+  "score": 7.0,
+  "gates": [
+    {
+      "name": "reason",
+      "passed": true,
+      "detail": "reason=236 chars, losing_side=237 chars (need >= 60 each)"
+    },
+    {
+      "name": "costs",
+      "passed": true,
+      "detail": "mean R at 2x costs (10bps/side) = 0.046 (1775 trades)"
+    },
+    {
+      "name": "out_of_sample",
+      "passed": true,
+      "detail": "train mean R=0.072 (1242 trades), test mean R=0.055 (533 trades)"
+    },
+    {
+      "name": "robustness",
+      "passed": true,
+      "detail": "154 symbols; x0.8: mean R=0.062 (1796 trades), x1.2: mean R=0.071 (1750 trades)"
+    },
+    {
+      "name": "luck_check",
+      "passed": true,
+      "detail": "worst 5% of 1000 bootstrap resamples: mean R=0.027"
+    },
+    {
+      "name": "baseline",
+      "passed": true,
+      "detail": "strategy mean R=0.066 vs random-entry mean R=0.056 (1775 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+    },
+    {
+      "name": "sample_size",
+      "passed": true,
+      "detail": "1775 out-of-sample trades (need >= 50)"
+    }
+  ],
+  "num_trades": 1775,
+  "mean_r": 0.0664904078274904
+}

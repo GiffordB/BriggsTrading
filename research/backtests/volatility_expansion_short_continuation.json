@@ -1,0 +1,44 @@
+{
+  "strategy_name": "volatility_expansion_short_continuation",
+  "passed_all": false,
+  "score": null,
+  "gates": [
+    {
+      "name": "reason",
+      "passed": true,
+      "detail": "reason=302 chars, losing_side=165 chars (need >= 60 each)"
+    },
+    {
+      "name": "costs",
+      "passed": false,
+      "detail": "mean R at 2x costs (10bps/side) = -0.128 (1615 trades)"
+    },
+    {
+      "name": "out_of_sample",
+      "passed": false,
+      "detail": "train mean R=-0.079 (1130 trades), test mean R=-0.161 (485 trades)"
+    },
+    {
+      "name": "robustness",
+      "passed": false,
+      "detail": "154 symbols; x0.8: mean R=-0.093 (1637 trades), x1.2: mean R=-0.112 (1602 trades)"
+    },
+    {
+      "name": "luck_check",
+      "passed": false,
+      "detail": "worst 5% of 1000 bootstrap resamples: mean R=-0.141"
+    },
+    {
+      "name": "baseline",
+      "passed": false,
+      "detail": "strategy mean R=-0.104 vs random-entry mean R=-0.041 (1615 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+    },
+    {
+      "name": "sample_size",
+      "passed": true,
+      "detail": "1615 out-of-sample trades (need >= 50)"
+    }
+  ],
+  "num_trades": 1615,
+  "mean_r": -0.1036924356986311
+}
