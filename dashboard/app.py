@@ -8,6 +8,7 @@ from alpaca.trading.enums import OrderSide
 from flask import Flask, Response, jsonify, render_template, request
 
 from src.alpaca_client import AlpacaClient
+from src.baseline_store import BaselineStore
 from src.config import Config
 from src.metrics import compute_metrics
 from src.news_sentiment import is_bad_news
@@ -22,6 +23,7 @@ app = Flask(__name__)
 config = Config()
 broker = AlpacaClient(config.alpaca_api_key, config.alpaca_secret_key, config.alpaca_paper)
 real_holdings_store = RealHoldingsStore(config.github_pat, config.github_repo)
+baseline_store = BaselineStore(config.github_pat, config.github_repo)
 
 if not config.github_pat:
     logger.warning(
@@ -279,6 +281,18 @@ def api_data():
         research = {"shortlist": [], "killed_count": None}
 
     try:
+        baseline = baseline_store.get_baseline()
+        if baseline:
+            baseline["return_since_pct"] = (
+                (account["equity"] / baseline["starting_equity"] - 1) * 100
+                if baseline["starting_equity"]
+                else None
+            )
+    except Exception:
+        logger.exception("Could not fetch strategy baseline")
+        baseline = None
+
+    try:
         equity_curve = broker.get_portfolio_history(period="3M", timeframe="1D")
         m = compute_metrics(equity_curve, positions)
         metrics = {
@@ -317,9 +331,36 @@ def api_data():
             "metrics": metrics,
             "real_holdings": real_holdings,
             "research": research,
+            "baseline": baseline,
             "mode": {"paper": config.alpaca_paper, "dry_run": config.dry_run},
         }
     )
+
+
+@app.route("/api/baseline", methods=["POST"])
+def api_set_baseline():
+    """Marks right now -- current live equity -- as the point this
+    strategy's track record should be measured from. Meant to be clicked
+    once, deliberately, after a cutover (e.g. liquidating everything from a
+    prior approach), not something that happens automatically."""
+    if not config.github_pat:
+        return jsonify({"success": False, "error": "GITHUB_PAT is not configured"}), 503
+
+    data = request.get_json(force=True, silent=True) or {}
+    note = (data.get("note") or "").strip()
+
+    try:
+        account = broker.get_account_summary()
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Could not reach Alpaca: {exc}"}), 502
+
+    try:
+        entry = baseline_store.set_baseline(account["equity"], note=note)
+    except Exception as exc:
+        logger.exception("Could not set strategy baseline")
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+    return jsonify({"success": True, "baseline": entry})
 
 
 @app.route("/api/sell", methods=["POST"])

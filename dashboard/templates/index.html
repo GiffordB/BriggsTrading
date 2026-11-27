@@ -94,6 +94,19 @@
   .risk-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
   .risk-banner ul { margin: 4px 0 0; padding-left: 18px; }
 
+  .baseline-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 14px; border-radius: 10px; font-size: 13px; margin-bottom: 12px;
+    border: 1px solid var(--border); background: var(--surface-1); flex-wrap: wrap;
+  }
+  .baseline-banner .text strong { font-variant-numeric: tabular-nums; }
+  .baseline-btn {
+    font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+    border: 1px solid var(--series-1); color: var(--series-1); background: transparent;
+    cursor: pointer; flex-shrink: 0;
+  }
+  .baseline-btn:hover { background: color-mix(in srgb, var(--series-1) 15%, transparent); }
+
   .decision-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
   .decision-badge.enter { color: var(--good); }
   .decision-badge.skip, .decision-badge.no_trade { color: var(--text-muted); }
@@ -191,6 +204,11 @@
   <div class="news-alerts" id="news-alerts" hidden>
     <div class="news-alerts-header"><span class="dot"></span><span>ALERT!! Bad news on your holdings</span></div>
     <div id="news-alerts-list"></div>
+  </div>
+
+  <div class="baseline-banner" id="baseline-banner">
+    <span class="text" id="baseline-text">Loading starting point&hellip;</span>
+    <button type="button" class="baseline-btn" id="baseline-btn" onclick="setBaseline()">Set starting point</button>
   </div>
 
   <div class="risk-banner ok" id="risk-banner">
@@ -491,6 +509,42 @@ async function reverseDecision(ticker, btn) {
   }
 }
 
+async function setBaseline() {
+  const note = prompt(
+    'Mark right now as the starting point for this strategy\'s track record ' +
+    '(e.g. after liquidating everything from a prior approach)? Optional note:',
+    ''
+  );
+  if (note === null) return;
+  try {
+    const res = await fetch('/api/baseline', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({note}),
+    });
+    const result = await res.json();
+    if (result.success) { refresh(); }
+    else { alert(`Could not set starting point: ${result.error}`); }
+  } catch (e) {
+    alert(`Could not set starting point: ${e}`);
+  }
+}
+
+function renderBaseline(baseline) {
+  const text = document.getElementById('baseline-text');
+  const btn = document.getElementById('baseline-btn');
+  if (!baseline) {
+    text.textContent = 'No starting point set for this strategy yet.';
+    btn.textContent = 'Set starting point';
+    return;
+  }
+  const startedAt = new Date(baseline.started_at).toLocaleDateString();
+  const pct = baseline.return_since_pct;
+  const pctStr = pct != null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : 'n/a';
+  text.innerHTML = `Strategy started <strong>${startedAt}</strong> at <strong>${fmtMoney(baseline.starting_equity)}</strong> &middot; return since: <strong class="${pct > 0 ? 'good' : pct < 0 ? 'critical' : ''}">${pctStr}</strong>${baseline.note ? ' &middot; ' + escapeHtml(baseline.note) : ''}`;
+  btn.textContent = 'Reset starting point';
+}
+
 function renderShortlist(shortlist, killedCount) {
   const container = document.getElementById('shortlist-cards');
   if (!shortlist || shortlist.length === 0) {
@@ -657,6 +711,7 @@ async function refresh() {
   }
 
   renderShortlist(data.research?.shortlist, data.research?.killed_count);
+  renderBaseline(data.baseline);
 
   const m = data.metrics || {};
   document.getElementById('stat-sharpe').textContent = m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : 'n/a';
