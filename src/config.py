@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from dotenv import load_dotenv
 
@@ -13,11 +13,6 @@ def _bool(name: str, default: bool) -> bool:
     return val.strip().lower() in ("1", "true", "yes")
 
 
-def _list(name: str) -> list[str]:
-    val = os.getenv(name, "")
-    return [item.strip() for item in val.split(",") if item.strip()]
-
-
 @dataclass(frozen=True)
 class Config:
     alpaca_api_key: str = os.getenv("ALPACA_API_KEY", "")
@@ -25,58 +20,36 @@ class Config:
     alpaca_paper: bool = _bool("ALPACA_PAPER", True)
     confirm_live_trading: str = os.getenv("CONFIRM_LIVE_TRADING", "")
 
-    position_size_pct: float = float(os.getenv("POSITION_SIZE_PCT", "0.02"))
-    max_notional_per_trade: float = float(os.getenv("MAX_NOTIONAL_PER_TRADE", "2000"))
-    max_notional_per_run: float = float(os.getenv("MAX_NOTIONAL_PER_RUN", "5000"))
-    # Exact dollar threshold (shares x price, not a bucketed range -- Form 4
-    # reports both precisely) a single insider *purchase* must clear to be
-    # worth mirroring at all.
-    min_trade_amount: float = float(os.getenv("MIN_TRADE_AMOUNT", "50000"))
-    # Same idea but for sales, kept as a separate knob since purchases and
-    # sales clear at very different volumes and may warrant different bars.
-    min_sale_amount: float = float(os.getenv("MIN_SALE_AMOUNT", "25000"))
-    mirror_transaction_types: list[str] = field(
-        default_factory=lambda: _list("MIRROR_TRANSACTION_TYPES") or ["Purchase"]
-    )
-    # Optional allowlist of specific insiders (by the name as it appears on
-    # their Form 4, e.g. "Musk Elon") to mirror -- empty means follow every
-    # insider's trade that clears the other filters.
-    followed_insiders: list[str] = field(default_factory=lambda: _list("FOLLOWED_INSIDERS"))
-    # How many days back of SEC's daily filing index to scan each run. Kept
-    # small by default (unlike the old congressional feed, nothing here
-    # tracks "already scanned days" -- every run re-scans the full window,
-    # so a larger value multiplies request volume per run, not just on first
-    # run). 2 days covers a daily schedule with one day of slack for a missed
-    # run; has_seen()/mark_seen() in main.py still dedupes within that window.
-    lookback_days: int = int(os.getenv("LOOKBACK_DAYS", "2"))
-    # Safety cap on how many *unique filings* get fetched and parsed in one
-    # run (the expensive part: an index.json + an XML fetch each, at ~1,000+
-    # candidates per weekday market-wide). Filings beyond the cap are simply
-    # not seen this run, not lost -- LOOKBACK_DAYS covers them on the next one.
-    max_insider_filings_per_run: int = int(os.getenv("MAX_INSIDER_FILINGS_PER_RUN", "2000"))
-    dry_run: bool = _bool("DRY_RUN", True)
-
-    trading_halted: bool = _bool("TRADING_HALTED", False)
+    # --- Risk (independent of any strategy's own signal -- see risk_guard.py) ---
+    risk_per_trade_pct: float = float(os.getenv("RISK_PER_TRADE_PCT", "0.01"))
+    daily_loss_limit_pct: float = float(os.getenv("DAILY_LOSS_LIMIT_PCT", "0.03"))
     max_drawdown_pct: float = float(os.getenv("MAX_DRAWDOWN_PCT", "0.15"))
+    max_leverage: float = float(os.getenv("MAX_LEVERAGE", "2.0"))
+    allow_short: bool = _bool("ALLOW_SHORT", True)
     max_position_concentration_pct: float = float(
         os.getenv("MAX_POSITION_CONCENTRATION_PCT", "0.20")
     )
     max_portfolio_exposure_pct: float = float(os.getenv("MAX_PORTFOLIO_EXPOSURE_PCT", "0.75"))
+    # Cap position size at this fraction of full Kelly, on top of the flat
+    # risk_per_trade_pct cap -- whichever is smaller wins. Guards against the
+    # backtest's own win-rate/avg-win estimate being too optimistic.
+    kelly_fraction_cap: float = float(os.getenv("KELLY_FRACTION_CAP", "0.25"))
 
-    # SEC blocks requests outright ("Undeclared Automated Tool") unless the
-    # User-Agent looks like it identifies a real requester -- empirically,
-    # that means containing something @-shaped, not just a bare project name
-    # or URL (confirmed live: the old default here, with no "@", got blocked
-    # from GitHub Actions; this one doesn't). The placeholder domain below is
-    # NOT a real, monitored contact -- set SEC_EDGAR_USER_AGENT to your own
-    # email as a repo variable if you want to actually comply with SEC's
-    # fair-access policy (reachable in case they need to flag abuse), not
-    # just dodge the bot filter. Note this value prints in plain text in
-    # every public GitHub Actions log, so don't put a personal email you
-    # don't want publicly visible. See src/sec_edgar_client.py.
-    sec_edgar_user_agent: str = os.getenv(
-        "SEC_EDGAR_USER_AGENT", "BriggsTrading admin@briggstrading.example.com"
-    )
+    # --- Research pipeline (src/research_pipeline.py) ---
+    # How many years of daily bars to backtest over.
+    backtest_years: int = int(os.getenv("BACKTEST_YEARS", "5"))
+    # Only strategies scoring at or above this (out of 10, see src/rank.py)
+    # make the morning shortlist.
+    min_shortlist_score: float = float(os.getenv("MIN_SHORTLIST_SCORE", "8.0"))
+    # Max new entries the execution step will act on in one morning, even if
+    # more survive -- see playbook.md.
+    max_setups_per_morning: int = int(os.getenv("MAX_SETUPS_PER_MORNING", "2"))
+    # Minimum number of out-of-sample trades a backtest must produce to even
+    # be considered (the "sample size" gate in src/skeptic.py).
+    min_backtest_trades: int = int(os.getenv("MIN_BACKTEST_TRADES", "30"))
+
+    dry_run: bool = _bool("DRY_RUN", True)
+    trading_halted: bool = _bool("TRADING_HALTED", False)
 
     news_lookback_days: int = int(os.getenv("NEWS_LOOKBACK_DAYS", "5"))
 

@@ -4,36 +4,30 @@ from pathlib import Path
 
 LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "decisions_log.jsonl"
 
-# Keep the log from growing forever -- each bot run can add at most a
-# handful of lines, so this is years of history before it matters.
+# Keep the log from growing forever -- each run adds at most a handful of
+# lines, so this is years of history before it matters.
 MAX_LINES = 5000
 
 
 def log_decision(
-    insider_name: str,
-    role: str,
-    ticker: str,
-    transaction_type: str,
-    filed_date: str,
+    symbol: str,
+    strategy_name: str,
+    direction: str,
     decision: str,
     reason: str,
-    transaction_date: str = "",
-    shares: float = 0.0,
-    price_per_share: float = 0.0,
     notional: float = 0.0,
+    predicted_r: float = 0.0,
+    score: float = 0.0,
 ) -> None:
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "logged_at": datetime.now(timezone.utc).isoformat(),
-        "insider_name": insider_name,
-        "role": role,
-        "ticker": ticker,
-        "transaction_type": transaction_type,
-        "transaction_date": transaction_date,
-        "filed_date": filed_date,
-        "shares": shares,
-        "price_per_share": price_per_share,
+        "symbol": symbol,
+        "strategy_name": strategy_name,
+        "direction": direction,
         "notional": notional,
+        "predicted_r": predicted_r,
+        "score": score,
         "decision": decision,
         "reason": reason,
     }

@@ -1,0 +1,39 @@
+name: Nightly research (Scout -> Ideas -> Quant -> Skeptic -> Rank)
+
+# Runs after the US market close so the day's own daily bar is final. UTC
+# cron drifts an hour across EDT/EST (no DST handling here) -- fine for a
+# step whose only time constraint is "after close, before next morning".
+on:
+  schedule:
+    - cron: "0 21 * * 1-5" # ~5pm ET (4pm during EST)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # needed to commit research/ back to the repo
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run nightly research pipeline
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
+          BACKTEST_YEARS: ${{ vars.BACKTEST_YEARS || '5' }}
+          MIN_SHORTLIST_SCORE: ${{ vars.MIN_SHORTLIST_SCORE || '8.0' }}
+          MIN_BACKTEST_TRADES: ${{ vars.MIN_BACKTEST_TRADES || '50' }}
+        run: python -m src.main research
+      - name: Commit research output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add research/
+          git diff --cached --quiet || git commit -m "Nightly research run [skip ci]"
+          git push

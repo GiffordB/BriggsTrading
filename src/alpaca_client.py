@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 from alpaca.data.enums import DataFeed
@@ -6,8 +7,16 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import NewsRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, QueryOrderStatus, TimeInForce
-from alpaca.trading.requests import GetOrdersRequest, GetPortfolioHistoryRequest, MarketOrderRequest
+from alpaca.trading.enums import OrderClass, OrderSide, QueryOrderStatus, TimeInForce
+from alpaca.trading.requests import (
+    GetOrdersRequest,
+    GetPortfolioHistoryRequest,
+    MarketOrderRequest,
+    StopLossRequest,
+    TakeProfitRequest,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AlpacaClient:
@@ -104,6 +113,37 @@ class AlpacaClient:
     def close_position(self, ticker: str):
         return self._client.close_position(ticker)
 
+    def submit_bracket_order(
+        self,
+        symbol: str,
+        qty: int,
+        side: str,
+        stop_loss_price: float,
+        take_profit_price: float | None,
+    ):
+        """A market entry with Alpaca-enforced stop-loss (and optional
+        take-profit) attached -- the stop/target half of a strategy's exit
+        rule is enforced by the exchange itself, not by a bot that has to be
+        running at the right moment. The max_holding_days time-exit still
+        has to be handled by a later run finding the position still open
+        (see state.PositionTracker) -- Alpaca brackets don't support that."""
+        order_side = OrderSide.BUY if side == "long" else OrderSide.SELL
+        # BRACKET needs both legs; OTO (one-triggers-other) covers a
+        # stop-only exit for a strategy with no target_pct.
+        order_class = OrderClass.BRACKET if take_profit_price else OrderClass.OTO
+        order = MarketOrderRequest(
+            symbol=symbol,
+            qty=qty,
+            side=order_side,
+            time_in_force=TimeInForce.DAY,
+            order_class=order_class,
+            take_profit=TakeProfitRequest(limit_price=take_profit_price)
+            if take_profit_price
+            else None,
+            stop_loss=StopLossRequest(stop_price=stop_loss_price),
+        )
+        return self._client.submit_order(order)
+
     def get_recent_news(self, symbols: list[str], lookback_days: int, limit: int = 50) -> list[dict]:
         """Recent news headlines for the given tickers, via Alpaca's News API --
         no extra signup needed, works with the same account keys."""
@@ -146,3 +186,43 @@ class AlpacaClient:
             ]
             for symbol, bars in bar_set.data.items()
         }
+
+    def get_daily_bars(
+        self, symbols: list[str], years: float, chunk_size: int = 50
+    ) -> dict[str, list[dict]]:
+        """Full daily OHLCV history for backtesting, chunked across requests to
+        keep any single request's symbol list a manageable size. Free IEX feed
+        -- years of real daily bars, no paid subscription. A chunk that fails
+        (rate limit, transient error) is skipped with a warning rather than
+        failing the whole scan; the caller sees it's simply missing from the
+        result and the next run tries again."""
+        if not symbols:
+            return {}
+        start = datetime.now(timezone.utc) - timedelta(days=int(years * 365.25))
+        results: dict[str, list[dict]] = {}
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i : i + chunk_size]
+            request = StockBarsRequest(
+                symbol_or_symbols=chunk,
+                timeframe=TimeFrame.Day,
+                start=start,
+                feed=DataFeed.IEX,
+            )
+            try:
+                bar_set = self._data_client.get_stock_bars(request)
+            except Exception:
+                logger.warning("Failed to fetch daily bars for chunk %s", chunk, exc_info=True)
+                continue
+            for symbol, bars in bar_set.data.items():
+                results[symbol] = [
+                    {
+                        "date": bar.timestamp.date().isoformat(),
+                        "open": float(bar.open),
+                        "high": float(bar.high),
+                        "low": float(bar.low),
+                        "close": float(bar.close),
+                        "volume": float(bar.volume),
+                    }
+                    for bar in bars
+                ]
+        return results

@@ -36,12 +36,16 @@ if not config.dashboard_username or not config.dashboard_password:
         "before deploying anywhere reachable by anyone but you."
     )
 
-DECISIONS_LOG_URL = (
-    "https://raw.githubusercontent.com/GiffordB/BriggsTrading/main/data/decisions_log.jsonl"
-)
+RAW_BASE = "https://raw.githubusercontent.com/GiffordB/BriggsTrading/main"
+DECISIONS_LOG_URL = f"{RAW_BASE}/data/decisions_log.jsonl"
+SHORTLIST_URL = f"{RAW_BASE}/research/shortlist.json"
+KILLED_URL = f"{RAW_BASE}/research/killed.md"
 
 _decisions_cache: dict = {"data": [], "fetched_at": 0.0}
 _DECISIONS_TTL_SECONDS = 300
+
+_research_cache: dict = {"shortlist": [], "killed_count": None, "fetched_at": 0.0}
+_RESEARCH_TTL_SECONDS = 900
 
 _news_cache: dict = {"data": [], "fetched_at": 0.0}
 _NEWS_TTL_SECONDS = 300
@@ -86,6 +90,34 @@ def _recent_decisions(limit: int = 30) -> list[dict]:
             _decisions_cache["data"] = []
         _decisions_cache["fetched_at"] = now
     return _decisions_cache["data"]
+
+
+def _research_summary() -> dict:
+    """Last night's shortlist (strategies that cleared all 7 Skeptic gates
+    and scored high enough to trade) plus how many ideas were killed --
+    fetched from the repo the same way the decisions log is, since this
+    dashboard runs as a separate service with no direct access to the
+    GitHub Actions runner."""
+    now = time.time()
+    if now - _research_cache["fetched_at"] > _RESEARCH_TTL_SECONDS:
+        try:
+            resp = requests.get(SHORTLIST_URL, timeout=10)
+            _research_cache["shortlist"] = resp.json() if resp.status_code == 200 else []
+        except Exception:
+            _research_cache["shortlist"] = []
+        try:
+            resp = requests.get(KILLED_URL, timeout=10)
+            if resp.status_code == 200:
+                _research_cache["killed_count"] = resp.text.count("\n## ")
+            else:
+                _research_cache["killed_count"] = None
+        except Exception:
+            _research_cache["killed_count"] = None
+        _research_cache["fetched_at"] = now
+    return {
+        "shortlist": _research_cache["shortlist"],
+        "killed_count": _research_cache["killed_count"],
+    }
 
 
 def _news_for_positions(positions: list[dict]) -> list[dict]:
@@ -226,13 +258,25 @@ def api_data():
     try:
         risk_status = assess_risk(broker, config)
         risk = {
-            "halted": risk_status.halted,
+            "halted": risk_status.halt_new_entries,
+            "halt_everything": risk_status.halt_everything,
             "reasons": risk_status.reasons,
             "drawdown_pct": risk_status.current_drawdown_pct * 100,
             "exposure_pct": risk_status.total_exposure_pct * 100,
+            "daily_pl_pct": risk_status.daily_pl_pct * 100,
         }
     except Exception as exc:
-        risk = {"halted": None, "reasons": [f"Could not compute: {exc}"], "drawdown_pct": None, "exposure_pct": None}
+        risk = {
+            "halted": None, "halt_everything": None,
+            "reasons": [f"Could not compute: {exc}"],
+            "drawdown_pct": None, "exposure_pct": None, "daily_pl_pct": None,
+        }
+
+    try:
+        research = _research_summary()
+    except Exception:
+        logger.exception("Could not fetch research summary")
+        research = {"shortlist": [], "killed_count": None}
 
     try:
         equity_curve = broker.get_portfolio_history(period="3M", timeframe="1D")
@@ -272,6 +316,7 @@ def api_data():
             "risk": risk,
             "metrics": metrics,
             "real_holdings": real_holdings,
+            "research": research,
             "mode": {"paper": config.alpaca_paper, "dry_run": config.dry_run},
         }
     )

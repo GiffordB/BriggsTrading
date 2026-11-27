@@ -95,9 +95,18 @@
   .risk-banner ul { margin: 4px 0 0; padding-left: 18px; }
 
   .decision-badge { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
-  .decision-badge.buy, .decision-badge.sell { color: var(--good); }
-  .decision-badge.skip { color: var(--text-muted); }
-  .role-tag { font-size: 11px; color: var(--text-muted); }
+  .decision-badge.enter { color: var(--good); }
+  .decision-badge.skip, .decision-badge.no_trade { color: var(--text-muted); }
+  .decision-badge.dry_run { color: var(--warning); }
+  .direction-tag { font-size: 11px; color: var(--text-muted); }
+
+  .shortlist-card {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 8px;
+  }
+  .shortlist-card .name { font-weight: 600; }
+  .shortlist-card .score { float: right; font-variant-numeric: tabular-nums; color: var(--good); }
+  .shortlist-card .meta { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
 
   .news-alerts { margin-bottom: 20px; }
   .news-alerts-header {
@@ -270,13 +279,19 @@
   </section>
 
   <section>
-    <h2>Audit Log &mdash; every insider filing evaluated</h2>
+    <h2>Research &mdash; last night's shortlist</h2>
+    <div id="shortlist-cards"><p class="hint">Loading&hellip;</p></div>
+    <div class="hint" id="killed-count-hint"></div>
+  </section>
+
+  <section>
+    <h2>Audit Log &mdash; every entry/skip decision</h2>
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th>Decision</th><th>Insider</th><th>Ticker</th>
-          <th class="num">Shares @ Price</th><th class="num">Value</th>
-          <th>Type</th><th>Reason</th><th>Logged</th><th></th>
+          <th>Decision</th><th>Symbol</th><th>Strategy</th>
+          <th class="num">Notional</th><th class="num">Predicted R</th><th class="num">Score</th>
+          <th>Reason</th><th>Logged</th><th></th>
         </tr></thead>
         <tbody id="decisions-body"><tr class="empty-row"><td colspan="9">Loading&hellip;</td></tr></tbody>
       </table>
@@ -453,52 +468,47 @@ async function sellPosition(ticker, btn) {
   }
 }
 
-async function reverseDecision(ticker, action, btn) {
-  // action is what the bot actually did -- reversing it means doing the
-  // opposite: sell back if it bought, buy back if it sold.
-  if (action === 'buy') {
-    if (!confirm(`Reverse this trade? This sells your entire ${ticker} position right now and cannot be undone.`)) return;
-    btn.disabled = true;
-    btn.textContent = 'Reversing…';
-    try {
-      const res = await fetch('/api/sell', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ticker}),
-      });
-      const result = await res.json();
-      if (result.success) { alert(`Reversed: sold ${ticker}.`); refresh(); }
-      else { alert(`Could not reverse ${ticker}: ${result.error}`); btn.disabled = false; btn.textContent = 'Reverse'; }
-    } catch (e) {
-      alert(`Could not reverse ${ticker}: ${e}`);
-      btn.disabled = false;
-      btn.textContent = 'Reverse';
-    }
-    return;
-  }
-
-  // action === 'sell': buying back needs a dollar amount, since the audit
-  // log doesn't store a reusable position size for a closed position.
-  const amount = prompt(`Reverse this trade? This buys ${ticker} back right now. Dollar amount to buy:`, '2000');
-  if (amount === null) return;
-  const notional = parseFloat(amount);
-  if (!(notional > 0)) { alert('Enter a positive dollar amount.'); return; }
+async function reverseDecision(ticker, btn) {
+  // Alpaca's close_position liquidates whatever position exists regardless
+  // of whether it's long or short, so reversing an "enter" decision is
+  // always the same call -- no need to know which direction it opened.
+  if (!confirm(`Reverse this trade? This closes your entire ${ticker} position right now and cannot be undone.`)) return;
   btn.disabled = true;
   btn.textContent = 'Reversing…';
   try {
-    const res = await fetch('/api/buy', {
+    const res = await fetch('/api/sell', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ticker, notional}),
+      body: JSON.stringify({ticker}),
     });
     const result = await res.json();
-    if (result.success) { alert(`Reversed: bought ${ticker}.`); refresh(); }
+    if (result.success) { alert(`Reversed: closed ${ticker}.`); refresh(); }
     else { alert(`Could not reverse ${ticker}: ${result.error}`); btn.disabled = false; btn.textContent = 'Reverse'; }
   } catch (e) {
     alert(`Could not reverse ${ticker}: ${e}`);
     btn.disabled = false;
     btn.textContent = 'Reverse';
   }
+}
+
+function renderShortlist(shortlist, killedCount) {
+  const container = document.getElementById('shortlist-cards');
+  if (!shortlist || shortlist.length === 0) {
+    container.innerHTML = '<p class="hint">No strategy cleared the bar last night -- no trade today. That\'s a valid outcome, not a bug.</p>';
+  } else {
+    container.innerHTML = shortlist.map(s => `
+      <div class="shortlist-card">
+        <span class="name">${escapeHtml(s.name)}</span>
+        <span class="score">${s.score.toFixed(1)}/10</span>
+        <div class="meta">${escapeHtml(s.direction)} &middot; stop ${(s.stop_pct*100).toFixed(1)}% &middot;
+          ${s.target_pct ? 'target ' + (s.target_pct*100).toFixed(1) + '%' : 'time exit only'} &middot;
+          max hold ${s.max_holding_days}d &middot; mean R ${s.mean_r.toFixed(2)}</div>
+      </div>`).join('');
+  }
+  const hint = document.getElementById('killed-count-hint');
+  hint.textContent = killedCount != null
+    ? `${killedCount} other idea${killedCount === 1 ? '' : 's'} failed a Skeptic gate last night and were killed.`
+    : '';
 }
 
 async function addRealHolding(event) {
@@ -639,11 +649,14 @@ async function refresh() {
   const bannerText = document.getElementById('risk-banner-text');
   if (data.risk && data.risk.halted) {
     banner.className = 'risk-banner halted';
-    bannerText.innerHTML = 'Trading halted by risk guard:<ul>' + data.risk.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('') + '</ul>';
+    const scope = data.risk.halt_everything ? 'Everything halted (including existing positions)' : 'New entries halted';
+    bannerText.innerHTML = `${scope} by risk guard:<ul>` + data.risk.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join('') + '</ul>';
   } else if (data.risk) {
     banner.className = 'risk-banner ok';
-    bannerText.textContent = `Risk OK — drawdown ${data.risk.drawdown_pct?.toFixed(1) ?? '—'}%, exposure ${data.risk.exposure_pct?.toFixed(1) ?? '—'}% of equity`;
+    bannerText.textContent = `Risk OK — drawdown ${data.risk.drawdown_pct?.toFixed(1) ?? '—'}%, exposure ${data.risk.exposure_pct?.toFixed(1) ?? '—'}% of equity, daily P/L ${data.risk.daily_pl_pct?.toFixed(1) ?? '—'}%`;
   }
+
+  renderShortlist(data.research?.shortlist, data.research?.killed_count);
 
   const m = data.metrics || {};
   document.getElementById('stat-sharpe').textContent = m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : 'n/a';
@@ -681,20 +694,18 @@ async function refresh() {
     </tr>`);
 
   renderRows('decisions-body', data.decisions, 9, (dec) => {
-    const canReverse = dec.decision === 'buy' || dec.decision === 'sell';
-    const sharesPrice = dec.shares && dec.price_per_share
-      ? `${dec.shares.toLocaleString()} @ ${fmtMoney(dec.price_per_share)}` : '—';
+    const canReverse = dec.decision === 'enter';
     return `
     <tr>
       <td><span class="decision-badge ${escapeHtml(dec.decision)}">${escapeHtml(dec.decision).toUpperCase()}</span></td>
-      <td>${escapeHtml(dec.insider_name)}${dec.role ? ` <span class="role-tag">${escapeHtml(dec.role)}</span>` : ''}</td>
-      <td>${tickerLink(dec.ticker)}</td>
-      <td class="num">${sharesPrice}</td>
-      <td class="num">${dec.notional != null ? fmtMoney(dec.notional) : '—'}</td>
-      <td>${escapeHtml(dec.transaction_type)}</td>
+      <td>${tickerLink(dec.symbol)}</td>
+      <td>${escapeHtml(dec.strategy_name)}${dec.direction && dec.direction !== '-' ? ` <span class="direction-tag">${escapeHtml(dec.direction)}</span>` : ''}</td>
+      <td class="num">${dec.notional ? fmtMoney(dec.notional) : '—'}</td>
+      <td class="num">${dec.predicted_r ? dec.predicted_r.toFixed(2) : '—'}</td>
+      <td class="num">${dec.score ? dec.score.toFixed(1) : '—'}</td>
       <td>${escapeHtml(dec.reason)}</td>
       <td>${fmtDate(dec.logged_at)}</td>
-      <td>${canReverse ? `<button type="button" class="row-btn danger" onclick="reverseDecision('${escapeHtml(dec.ticker)}', '${escapeHtml(dec.decision)}', this)">Reverse</button>` : ''}</td>
+      <td>${canReverse ? `<button type="button" class="row-btn danger" onclick="reverseDecision('${escapeHtml(dec.symbol)}', this)">Reverse</button>` : ''}</td>
     </tr>`;
   });
 

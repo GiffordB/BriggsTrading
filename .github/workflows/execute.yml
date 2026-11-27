@@ -1,0 +1,59 @@
+name: Morning execution (act on last night's shortlist)
+
+# Runs shortly before the US market open. UTC cron drifts an hour across
+# EDT/EST (no DST handling here) -- fine for a swing system with no
+# scalping-level timing requirement.
+on:
+  schedule:
+    - cron: "30 13 * * 1-5" # ~9:30am ET (8:30am during EST)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # needed to commit the audit log + trades.csv back to the repo
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore position-tracker state from previous run
+        uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true # fine if this is the first-ever run
+        with:
+          workflow: execute.yml
+          name: bot-state-db
+      - name: Run morning execution
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+          ALPACA_PAPER: ${{ vars.ALPACA_PAPER || 'true' }}
+          CONFIRM_LIVE_TRADING: ${{ vars.CONFIRM_LIVE_TRADING }}
+          DRY_RUN: ${{ vars.DRY_RUN || 'true' }}
+          TRADING_HALTED: ${{ vars.TRADING_HALTED || 'false' }}
+          RISK_PER_TRADE_PCT: ${{ vars.RISK_PER_TRADE_PCT || '0.01' }}
+          DAILY_LOSS_LIMIT_PCT: ${{ vars.DAILY_LOSS_LIMIT_PCT || '0.03' }}
+          MAX_DRAWDOWN_PCT: ${{ vars.MAX_DRAWDOWN_PCT || '0.15' }}
+          MAX_LEVERAGE: ${{ vars.MAX_LEVERAGE || '2.0' }}
+          ALLOW_SHORT: ${{ vars.ALLOW_SHORT || 'true' }}
+          MAX_POSITION_CONCENTRATION_PCT: ${{ vars.MAX_POSITION_CONCENTRATION_PCT || '0.20' }}
+          MAX_PORTFOLIO_EXPOSURE_PCT: ${{ vars.MAX_PORTFOLIO_EXPOSURE_PCT || '0.75' }}
+          KELLY_FRACTION_CAP: ${{ vars.KELLY_FRACTION_CAP || '0.25' }}
+          MAX_SETUPS_PER_MORNING: ${{ vars.MAX_SETUPS_PER_MORNING || '2' }}
+        run: python -m src.main execute
+      - name: Upload position-tracker state so time-exits aren't lost
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-state-db
+          path: bot_state.db
+      - name: Commit audit log and trade log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/decisions_log.jsonl data/trades.csv
+          git diff --cached --quiet || git commit -m "Update decisions audit log + trades [skip ci]"
+          git push
