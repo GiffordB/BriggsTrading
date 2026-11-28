@@ -1,0 +1,128 @@
+[
+  {
+    "name": "volume_spike_breakout_continuation",
+    "passed_all": true,
+    "score": 7.0,
+    "gates": [
+      {
+        "name": "reason",
+        "passed": true,
+        "detail": "reason=236 chars, losing_side=237 chars (need >= 60 each)"
+      },
+      {
+        "name": "costs",
+        "passed": true,
+        "detail": "mean R at 2x costs (10bps/side) = 0.046 (1775 trades)"
+      },
+      {
+        "name": "out_of_sample",
+        "passed": true,
+        "detail": "train mean R=0.072 (1242 trades), test mean R=0.055 (533 trades)"
+      },
+      {
+        "name": "robustness",
+        "passed": true,
+        "detail": "154 symbols; 25/25 parameter combos (100%) positive (need >= 80%); worst combo stop=0.030 target=0.06: mean R=0.006"
+      },
+      {
+        "name": "luck_check",
+        "passed": true,
+        "detail": "worst 5% of 1000 bootstrap resamples: mean R=0.023"
+      },
+      {
+        "name": "baseline",
+        "passed": true,
+        "detail": "strategy mean R=0.066 vs random-entry mean R=0.062 (1775 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+      },
+      {
+        "name": "sample_size",
+        "passed": true,
+        "detail": "1775 out-of-sample trades (need >= 50)"
+      }
+    ]
+  },
+  {
+    "name": "gap_down_mean_reversion",
+    "passed_all": false,
+    "score": null,
+    "gates": [
+      {
+        "name": "reason",
+        "passed": true,
+        "detail": "reason=286 chars, losing_side=173 chars (need >= 60 each)"
+      },
+      {
+        "name": "costs",
+        "passed": false,
+        "detail": "mean R at 2x costs (10bps/side) = -0.032 (2306 trades)"
+      },
+      {
+        "name": "out_of_sample",
+        "passed": false,
+        "detail": "train mean R=-0.023 (1614 trades), test mean R=0.025 (692 trades)"
+      },
+      {
+        "name": "robustness",
+        "passed": true,
+        "detail": "151 symbols; 25/25 parameter combos (100%) positive (need >= 80%); worst combo stop=0.024 target=0.03: mean R=0.002"
+      },
+      {
+        "name": "luck_check",
+        "passed": false,
+        "detail": "worst 5% of 1000 bootstrap resamples: mean R=-0.043"
+      },
+      {
+        "name": "baseline",
+        "passed": false,
+        "detail": "strategy mean R=-0.009 vs random-entry mean R=0.001 (2306 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+      },
+      {
+        "name": "sample_size",
+        "passed": true,
+        "detail": "2306 out-of-sample trades (need >= 50)"
+      }
+    ]
+  },
+  {
+    "name": "volatility_expansion_short_continuation",
+    "passed_all": false,
+    "score": null,
+    "gates": [
+      {
+        "name": "reason",
+        "passed": true,
+        "detail": "reason=302 chars, losing_side=165 chars (need >= 60 each)"
+      },
+      {
+        "name": "costs",
+        "passed": false,
+        "detail": "mean R at 2x costs (10bps/side) = -0.128 (1615 trades)"
+      },
+      {
+        "name": "out_of_sample",
+        "passed": false,
+        "detail": "train mean R=-0.079 (1130 trades), test mean R=-0.161 (485 trades)"
+      },
+      {
+        "name": "robustness",
+        "passed": false,
+        "detail": "154 symbols; 0/25 parameter combos (0%) positive (need >= 80%); worst combo stop=0.024 target=0.08399999999999999: mean R=-0.329"
+      },
+      {
+        "name": "luck_check",
+        "passed": false,
+        "detail": "worst 5% of 1000 bootstrap resamples: mean R=-0.142"
+      },
+      {
+        "name": "baseline",
+        "passed": false,
+        "detail": "strategy mean R=-0.104 vs random-entry mean R=-0.038 (1615 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+      },
+      {
+        "name": "sample_size",
+        "passed": true,
+        "detail": "1615 out-of-sample trades (need >= 50)"
+      }
+    ]
+  }
+]

@@ -21,17 +21,17 @@
     {
       "name": "robustness",
       "passed": true,
-      "detail": "154 symbols; x0.8: mean R=0.062 (1796 trades), x1.2: mean R=0.071 (1750 trades)"
+      "detail": "154 symbols; 25/25 parameter combos (100%) positive (need >= 80%); worst combo stop=0.030 target=0.06: mean R=0.006"
     },
     {
       "name": "luck_check",
       "passed": true,
-      "detail": "worst 5% of 1000 bootstrap resamples: mean R=0.027"
+      "detail": "worst 5% of 1000 bootstrap resamples: mean R=0.023"
     },
     {
       "name": "baseline",
       "passed": true,
-      "detail": "strategy mean R=0.066 vs random-entry mean R=0.056 (1775 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
+      "detail": "strategy mean R=0.066 vs random-entry mean R=0.062 (1775 trades); universe buy-hold mean return=41.5% over the same window (informational, not R-comparable)"
     },
     {
       "name": "sample_size",
