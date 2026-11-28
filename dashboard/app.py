@@ -349,6 +349,13 @@ def api_data():
             "real_holdings": real_holdings,
             "research": research,
             "baseline": baseline,
+            # The risk guard's own limits, as percentages, so the page can
+            # draw each reading against the line it must stay under.
+            "limits": {
+                "max_drawdown_pct": config.max_drawdown_pct * 100,
+                "max_exposure_pct": config.max_portfolio_exposure_pct * 100,
+                "max_concentration_pct": config.max_position_concentration_pct * 100,
+            },
             "mode": {"paper": config.alpaca_paper, "dry_run": config.dry_run},
         }
     )
