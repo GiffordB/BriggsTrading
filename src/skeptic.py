@@ -7,14 +7,16 @@ import random
 import statistics
 from dataclasses import dataclass, field
 
+from . import vbt_robustness
 from .backtest import Trade, run_backtest, run_random_entry_baseline
 from .ideas import StrategyDef
 
 MIN_REASON_LEN = 60
 MIN_DISTINCT_SYMBOLS = 10
-PERTURBATION_FACTORS = (0.8, 1.2)
 MONTE_CARLO_ITERATIONS = 1000
 MONTE_CARLO_PERCENTILE = 5  # worst 5% of resamples
+MIN_COMBO_TRADES = 20  # a combo with fewer trades than this doesn't count either way
+ROBUSTNESS_PASS_RATE = 0.8  # fraction of valid combos that must show positive mean R
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,11 @@ def _gate_out_of_sample(base_trades: list[Trade]) -> GateResult:
 def _gate_robustness(
     strategy: StrategyDef, symbol_bars: dict[str, list[dict]], base_trades: list[Trade]
 ) -> GateResult:
+    """Distinct-symbols check (not carried by 1-2 names), plus a vectorized
+    grid sweep over nearby stop/target combinations (src/vbt_robustness.py)
+    -- the edge must hold up across a real neighborhood of parameters, not
+    just the exact ones chosen, and not just 2 arbitrarily perturbed points.
+    """
     distinct_symbols = len({t.symbol for t in base_trades})
     if distinct_symbols < MIN_DISTINCT_SYMBOLS:
         return GateResult(
@@ -94,24 +101,28 @@ def _gate_robustness(
             f"only {distinct_symbols} distinct symbols traded (need >= {MIN_DISTINCT_SYMBOLS})",
         )
 
-    results = []
-    for factor in PERTURBATION_FACTORS:
-        perturbed = StrategyDef(
-            name=strategy.name + f"_perturbed_{factor}",
-            anomaly_column=strategy.anomaly_column,
-            direction=strategy.direction,
-            stop_pct=strategy.stop_pct * factor,
-            target_pct=strategy.target_pct * factor if strategy.target_pct else None,
-            max_holding_days=max(1, int(strategy.max_holding_days * factor)),
-            reason=strategy.reason,
-            losing_side=strategy.losing_side,
+    grid = vbt_robustness.run_grid(strategy, symbol_bars)
+    valid = [
+        (combo, mean_r)
+        for combo, mean_r, n in zip(grid["combos"], grid["mean_r"], grid["trade_counts"])
+        if mean_r is not None and n >= MIN_COMBO_TRADES
+    ]
+    if not valid:
+        return GateResult(
+            "robustness", False,
+            f"{distinct_symbols} symbols; no parameter combo had >= {MIN_COMBO_TRADES} trades",
         )
-        trades = run_backtest(symbol_bars, perturbed)
-        results.append((factor, _mean_r(trades), len(trades)))
 
-    ok = all(mean_r > 0 for _, mean_r, _ in results)
-    detail = ", ".join(f"x{f}: mean R={m:.3f} ({n} trades)" for f, m, n in results)
-    return GateResult("robustness", ok, f"{distinct_symbols} symbols; " + detail)
+    positive = sum(1 for _, mean_r in valid if mean_r > 0)
+    pass_rate = positive / len(valid)
+    ok = pass_rate >= ROBUSTNESS_PASS_RATE
+    worst_combo, worst_mean_r = min(valid, key=lambda cv: cv[1])
+    return GateResult(
+        "robustness", ok,
+        f"{distinct_symbols} symbols; {positive}/{len(valid)} parameter combos "
+        f"({pass_rate:.0%}) positive (need >= {ROBUSTNESS_PASS_RATE:.0%}); "
+        f"worst combo stop={worst_combo[0]:.3f} target={worst_combo[1]}: mean R={worst_mean_r:.3f}",
+    )
 
 
 def _gate_luck_check(base_trades: list[Trade]) -> GateResult:

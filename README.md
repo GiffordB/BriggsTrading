@@ -197,3 +197,11 @@ disabled.
   rolling walk-forward.
 - Only trades symbols Alpaca can trade (all of the fixed universe should
   qualify, but `is_tradable` is still checked before every entry).
+- **The Robustness gate's parameter sweep (`src/vbt_robustness.py`, via
+  vectorbt) omits the max_holding_days time-exit** -- trades in that sweep
+  ride to their stop or target only, not the production "stop, target, or
+  time, whichever first" rule. That keeps the whole 25-combo grid
+  vectorizable in one call per symbol; it's a real, honest stress test of
+  stop/target sensitivity specifically, just not a byte-for-byte replay of
+  the production mechanics. Every other gate, the shortlist, and execution
+  itself all use the exit-complete simulation in `src/backtest.py`.
