@@ -117,11 +117,13 @@ def _gate_robustness(
     pass_rate = positive / len(valid)
     ok = pass_rate >= ROBUSTNESS_PASS_RATE
     worst_combo, worst_mean_r = min(valid, key=lambda cv: cv[1])
+    worst_target_str = f"{worst_combo[1]:.3f}" if worst_combo[1] is not None else "none"
     return GateResult(
         "robustness", ok,
         f"{distinct_symbols} symbols; {positive}/{len(valid)} parameter combos "
         f"({pass_rate:.0%}) positive (need >= {ROBUSTNESS_PASS_RATE:.0%}); "
-        f"worst combo stop={worst_combo[0]:.3f} target={worst_combo[1]}: mean R={worst_mean_r:.3f}",
+        f"worst combo stop={worst_combo[0]:.3f} target={worst_target_str}: "
+        f"mean R={worst_mean_r:.3f}",
     )
 
 
