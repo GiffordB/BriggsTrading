@@ -87,6 +87,28 @@ class AlpacaClient:
             for o in orders
         ]
 
+    def get_closing_order(self, ticker: str, after: datetime) -> dict | None:
+        """The most recent filled order for `ticker` submitted after `after`
+        -- used to find the real fill price of a position that has since
+        closed, whether via a bracket stop/target leg or our own
+        close_position() call for a time-based exit. Returns None if
+        nothing filled yet (e.g. a just-submitted close that hasn't settled
+        by the time this is called) -- the caller should treat that as
+        "try again next run", not an error."""
+        request = GetOrdersRequest(
+            status=QueryOrderStatus.CLOSED, symbols=[ticker], after=after, limit=10,
+        )
+        orders = self._client.get_orders(request)
+        filled = [o for o in orders if o.filled_at is not None and o.filled_avg_price is not None]
+        if not filled:
+            return None
+        latest = max(filled, key=lambda o: o.filled_at)
+        return {
+            "side": latest.side.value,
+            "filled_avg_price": float(latest.filled_avg_price),
+            "filled_at": latest.filled_at.isoformat(),
+        }
+
     def has_open_position(self, ticker: str) -> bool:
         try:
             self._client.get_open_position(ticker)

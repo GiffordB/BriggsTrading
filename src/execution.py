@@ -48,27 +48,92 @@ def _append_trade_row(row: dict) -> None:
         writer.writerow(row)
 
 
+def _infer_exit_reason(pos: dict, exit_price: float) -> str:
+    """Best-effort guess at why a position closed, from how close the fill
+    landed to the stop/target prices recorded when it was opened. Within 1%
+    of either counts as that one; otherwise assume the time-exit force-
+    closed it (the only other way a tracked position closes)."""
+    stop_price = pos.get("stop_price") or 0.0
+    target_price = pos.get("target_price") or 0.0
+    dist_stop = abs(exit_price - stop_price) if stop_price else float("inf")
+    dist_target = abs(exit_price - target_price) if target_price else float("inf")
+    tolerance = abs(exit_price) * 0.01
+    if dist_stop <= dist_target and dist_stop <= tolerance:
+        return "stop"
+    if dist_target < dist_stop and dist_target <= tolerance:
+        return "target"
+    return "time"
+
+
+def _realized_r(pos: dict, exit_price: float) -> float:
+    entry_price = pos["entry_price"]
+    stop_price = pos.get("stop_price") or entry_price
+    risk_per_share = abs(entry_price - stop_price)
+    if risk_per_share <= 0:
+        return 0.0
+    is_long = pos["direction"] == "long"
+    pnl_per_share = (exit_price - entry_price) if is_long else (entry_price - exit_price)
+    return pnl_per_share / risk_per_share
+
+
+def _finalize_closed_position(broker: AlpacaClient, pos: dict, today: date) -> bool:
+    """A tracked position is no longer open on Alpaca -- look up its actual
+    closing fill and log the realized trade. Returns False (and logs
+    nothing) if the fill hasn't shown up in order history yet, so the
+    caller can leave it tracked and try again next run rather than losing
+    the comparison data."""
+    symbol = pos["symbol"]
+    try:
+        entry_datetime = datetime.combine(
+            date.fromisoformat(pos["entry_date"]), datetime.min.time(), tzinfo=timezone.utc
+        )
+        order = broker.get_closing_order(symbol, after=entry_datetime)
+    except Exception:
+        logger.exception("Could not look up closing fill for %s", symbol)
+        order = None
+
+    if order is None:
+        logger.warning(
+            "%s shows closed on Alpaca but no closing fill found yet -- "
+            "will retry next run", symbol,
+        )
+        return False
+
+    exit_price = order["filled_avg_price"]
+    exit_reason = _infer_exit_reason(pos, exit_price)
+    realized_r = _realized_r(pos, exit_price)
+    exit_date = order["filled_at"][:10] if order.get("filled_at") else today.isoformat()
+
+    logger.info(
+        "CLOSED %s (strategy=%s, reason=%s, predicted_r=%.2f, realized_r=%.2f)",
+        symbol, pos["strategy_name"], exit_reason, pos["predicted_r"], realized_r,
+    )
+    _append_trade_row(
+        {
+            "symbol": symbol, "strategy_name": pos["strategy_name"],
+            "direction": pos["direction"], "entry_date": pos["entry_date"],
+            "entry_price": pos["entry_price"], "exit_date": exit_date,
+            "exit_price": exit_price, "exit_reason": exit_reason,
+            "qty": pos["qty"], "predicted_r": pos["predicted_r"], "realized_r": realized_r,
+        }
+    )
+    return True
+
+
 def manage_open_positions(broker: AlpacaClient, tracker: PositionTracker) -> None:
     """Force-closes any tracked position that has run past its strategy's
     max_holding_days without already hitting its bracket stop/target -- the
-    one exit rule a bracket order can't enforce by itself."""
+    one exit rule a bracket order can't enforce by itself -- and records the
+    realized outcome (actual fill price, inferred exit reason, realized R)
+    for anything that has already closed, whether via its bracket stop/
+    target or a time-exit this or an earlier run submitted.
+    """
     today = date.today()
     for pos in tracker.list_open():
         symbol = pos["symbol"]
         if not broker.has_open_position(symbol):
-            # Already closed by its own bracket stop/target; log it so
-            # trades.csv has a realized result to compare against the
-            # predicted R later.
-            _append_trade_row(
-                {
-                    "symbol": symbol, "strategy_name": pos["strategy_name"],
-                    "direction": pos["direction"], "entry_date": pos["entry_date"],
-                    "entry_price": pos["entry_price"], "exit_date": today.isoformat(),
-                    "exit_price": "", "exit_reason": "stop_or_target",
-                    "qty": pos["qty"], "predicted_r": pos["predicted_r"], "realized_r": "",
-                }
-            )
-            tracker.remove(symbol)
+            if _finalize_closed_position(broker, pos, today):
+                tracker.remove(symbol)
             continue
 
         entry_date = date.fromisoformat(pos["entry_date"])
@@ -82,19 +147,14 @@ def manage_open_positions(broker: AlpacaClient, tracker: PositionTracker) -> Non
             continue
 
         logger.info(
-            "TIME EXIT %s (strategy=%s, held %d days)",
+            "TIME EXIT submitted for %s (strategy=%s, held %d days) -- "
+            "realized result will be recorded once the fill settles",
             symbol, pos["strategy_name"], (today - entry_date).days,
         )
-        _append_trade_row(
-            {
-                "symbol": symbol, "strategy_name": pos["strategy_name"],
-                "direction": pos["direction"], "entry_date": pos["entry_date"],
-                "entry_price": pos["entry_price"], "exit_date": today.isoformat(),
-                "exit_price": "", "exit_reason": "time", "qty": pos["qty"],
-                "predicted_r": pos["predicted_r"], "realized_r": "",
-            }
-        )
-        tracker.remove(symbol)
+        # Don't remove from the tracker yet -- the close just submitted may
+        # not have filled by the time we'd look it up. Left tracked, the
+        # `not has_open_position` branch above finalizes it with a real
+        # fill price on this run (if it already settled) or a later one.
 
 
 def run() -> None:
